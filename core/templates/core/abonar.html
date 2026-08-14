@@ -1,0 +1,22 @@
+{% extends "core/base.html" %}
+{% load humanize %}
+{% block title %}Abonar - Vega Los Ángeles{% endblock %}
+{% block content %}
+<div class="card" style="max-width: 420px;">
+    <h2 style="color: #1b4d3e; margin-bottom: 20px;">Abonar pago</h2>
+    <p style="margin-bottom: 8px;">Folio: <strong>{{ pago.folio }}</strong></p>
+    <p style="margin-bottom: 8px;">Local: <strong>{{ pago.local.numero }}</strong></p>
+    <p style="margin-bottom: 20px;">Saldo pendiente: <strong>${{ pago.valor|floatformat:0|intcomma }}</strong></p>
+    <form method="post">
+        {% csrf_token %}
+        <div class="form-group" style="margin-bottom: 16px;">
+            <label>Monto a abonar</label>
+            <input type="number" name="monto" step="0.01" min="0.01" required>
+        </div>
+        <div style="display: flex; gap: 10px;">
+            <button class="btn btn-primary" type="submit">Confirmar</button>
+            <a class="btn btn-outline" href="{% url 'pagos_tipo' tipo %}">Cancelar</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

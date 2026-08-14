@@ -1,0 +1,30 @@
+{% extends "core/base.html" %}
+{% block title %}Locales Desocupados - Vega Los Ángeles{% endblock %}
+{% block content %}
+<div class="card">
+    <h2 style="color: #1b4d3e; margin-bottom: 20px;">Locales Desocupados</h2>
+    {% if desocupados %}
+    <table>
+        <thead>
+            <tr>
+                <th>N° Local</th>
+                <th>Tipo</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for local in desocupados %}
+            <tr>
+                <td>{{ local.numero }}</td>
+                <td>{{ local.get_tipo_display }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="vacio">No hay locales desocupados.</p>
+    {% endif %}
+    <div style="margin-top: 20px;">
+        <a class="btn btn-outline" href="{% url 'pagos' %}">Volver a pagos</a>
+    </div>
+</div>
+{% endblock %}

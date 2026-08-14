@@ -1,0 +1,65 @@
+{% extends "core/base.html" %}
+{% load humanize %}
+{% block title %}Pagos - Vega Los Ángeles{% endblock %}
+{% block content %}
+<div class="tabs">
+    {% for valor, nombre in tipos %}
+    <a class="tab {% if valor == tipo_actual %}active{% endif %}" href="{% url 'pagos_tipo' valor %}">{{ nombre }}</a>
+    {% endfor %}
+</div>
+
+<div class="card">
+    <div class="toolbar">
+        <form method="get" style="display: flex; gap: 8px; align-items: center;">
+            <input type="text" name="numero" value="{{ numero_filtro }}" placeholder="Buscar N° de local..." style="width: 220px;">
+            <button class="btn btn-primary" type="submit">Buscar</button>
+        </form>
+        {% if es_caja %}
+        <a class="btn btn-primary" href="{% url 'agregar_pago' tipo_actual %}" style="margin-left: auto;">+ Agregar</a>
+        {% endif %}
+    </div>
+
+    {% if tipo_mensual %}
+    <p class="mensual" style="margin-bottom: 12px;">Valor mensual</p>
+    {% else %}
+    <p class="mensual" style="margin-bottom: 12px;">Valor diario</p>
+    {% endif %}
+
+    <table>
+        <thead>
+            <tr>
+                <th>N° Local</th>
+                <th>Fecha</th>
+                <th>Mes</th>
+                <th>Empresario</th>
+                <th>RUT</th>
+                <th>Descripción</th>
+                <th>Valor</th>
+                <th>Fecha Pago</th>
+                <th>Folio</th>
+                {% if es_caja %}<th>Acciones</th>{% endif %}
+            </tr>
+        </thead>
+        <tbody>
+            {% for pago in pagos %}
+            <tr>
+                <td>{{ pago.local.numero }}</td>
+                <td>{{ pago.fecha|date:"d/m/Y" }}</td>
+                <td>{{ pago.mes }}</td>
+                <td>{{ pago.empresario }}</td>
+                <td>{{ pago.rut }}</td>
+                <td>{{ pago.descripcion }}</td>
+                <td>${{ pago.valor|floatformat:0|intcomma }}</td>
+                <td>{{ pago.fecha_pago|date:"d/m/Y"|default:"—" }}</td>
+                <td>{{ pago.folio }}</td>
+                {% if es_caja %}
+                <td><a class="btn btn-outline btn-abonar" href="{% url 'abonar_pago' tipo_actual pago.folio %}">Abonar</a></td>
+                {% endif %}
+            </tr>
+            {% empty %}
+            <tr><td colspan="10" class="vacio">No hay pagos registrados{% if numero_filtro %} para ese número{% endif %}.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

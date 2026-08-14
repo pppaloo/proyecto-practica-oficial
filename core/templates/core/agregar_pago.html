@@ -1,0 +1,110 @@
+{% extends "core/base.html" %}
+{% block title %}Agregar registro - Vega Los Ángeles{% endblock %}
+{% block content %}
+<div class="card" style="max-width: 700px;">
+    <h2 style="color: #1b4d3e; margin-bottom: 20px;">Agregar registro</h2>
+    <p style="margin-bottom: 16px; color: #555;">
+        Tipo: <strong>{{ tipo }}</strong>
+        {% if tipo_mensual %}
+        · Valor mensual
+        {% else %}
+        · Valor diario
+        {% endif %}
+        {% if restringido %}
+        · <span class="mensual">No paga domingos ni feriados</span>
+        {% endif %}
+    </p>
+    <form method="post">
+        {% csrf_token %}
+        <div class="form-grid">
+            <div class="form-group">
+                <label>N° Local *</label>
+                <input type="text" name="numero" required>
+            </div>
+            <div class="form-group">
+                <label>Fecha *</label>
+                <input type="date" id="id_fecha" name="fecha" required value="{{ hoy }}">
+                <small id="id_fecha_aviso" style="color:#b33939; display:none;"></small>
+            </div>
+            <input type="hidden" id="id_mes" name="mes">
+            <div class="form-group">
+                <label>Empresario</label>
+                <input type="text" name="empresario">
+            </div>
+            <div class="form-group">
+                <label>RUT</label>
+                <input type="text" name="rut" placeholder="12.345.678-9">
+            </div>
+            <div class="form-group">
+                <label>Descripción</label>
+                <input type="text" name="descripcion">
+            </div>
+            <div class="form-group">
+                <label>Valor *</label>
+                <input type="number" name="valor" step="0.01" min="0" required>
+            </div>
+            <div class="form-group">
+                <label>Fecha Pago (opcional)</label>
+                <input type="date" name="fecha_pago">
+            </div>
+            <div class="form-group">
+                <label>Folio *</label>
+                <input type="text" name="folio" required>
+            </div>
+        </div>
+        <div style="margin-top: 20px; display: flex; gap: 10px;">
+            <button class="btn btn-primary" type="submit">Guardar</button>
+            <a class="btn btn-outline" href="{% url 'pagos_tipo' tipo %}">Cancelar</a>
+        </div>
+    </form>
+</div>
+
+<script>
+    const MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+    const FERIADOS = new Set({{ feriados|safe }});
+    const RESTRINGIDO = {{ restringido|lower }};
+
+    const fechaInput = document.getElementById("id_fecha");
+    const mesInput = document.getElementById("id_mes");
+    const aviso = document.getElementById("id_fecha_aviso");
+
+    function actualizarMes() {
+        if (!fechaInput.value) return;
+        const [a, m] = fechaInput.value.split("-");
+        mesInput.value = MESES[parseInt(m, 10) - 1];
+    }
+
+    function esDiaNoHabil(fecha) {
+        const d = new Date(fecha + "T00:00:00");
+        return d.getDay() === 0 || FERIADOS.has(fecha);
+    }
+
+    function validarFecha() {
+        actualizarMes();
+        if (!RESTRINGIDO) { aviso.style.display = "none"; return; }
+        const fecha = fechaInput.value;
+        if (fecha && esDiaNoHabil(fecha)) {
+            const d = new Date(fecha + "T00:00:00");
+            const msg = d.getDay() === 0
+                ? "Este tipo de local no paga domingos."
+                : "Este tipo de local no paga feriados.";
+            aviso.textContent = msg;
+            aviso.style.display = "block";
+        } else {
+            aviso.style.display = "none";
+        }
+    }
+
+    fechaInput.addEventListener("change", validarFecha);
+    fechaInput.addEventListener("input", validarFecha);
+    validarFecha();
+
+    const formulario = document.querySelector("form");
+    formulario.addEventListener("submit", function (e) {
+        if (RESTRINGIDO && fechaInput.value && esDiaNoHabil(fechaInput.value)) {
+            e.preventDefault();
+            validarFecha();
+        }
+    });
+</script>
+{% endblock %}

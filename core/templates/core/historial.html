@@ -1,0 +1,36 @@
+{% extends "core/base.html" %}
+{% load humanize %}
+{% block title %}Historial - Vega Los Ángeles{% endblock %}
+{% block content %}
+<div class="card">
+    <h2 style="color: #1b4d3e; margin-bottom: 20px;">Historial de operaciones</h2>
+    {% if registros %}
+    <table>
+        <thead>
+            <tr>
+                <th>Fecha y hora</th>
+                <th>Usuario</th>
+                <th>Acción</th>
+                <th>N° Local</th>
+                <th>Folio</th>
+                <th>Monto</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in registros %}
+            <tr>
+                <td>{{ r.fecha_hora|date:"d/m/Y H:i" }}</td>
+                <td>{{ r.usuario.username }}</td>
+                <td>{{ r.get_accion_display }}</td>
+                <td>{{ r.local_numero }}</td>
+                <td>{{ r.folio }}</td>
+                <td>${{ r.monto|floatformat:0|intcomma }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="vacio">Aún no hay operaciones registradas.</p>
+    {% endif %}
+</div>
+{% endblock %}
