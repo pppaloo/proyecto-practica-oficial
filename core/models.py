@@ -66,3 +66,16 @@ class Historial(models.Model):
 
     def __str__(self):
         return f"{self.fecha_hora:%Y-%m-%d %H:%M} - {self.usuario.username} - {self.get_accion_display()} - {self.folio}"
+
+
+class LoginLog(models.Model):
+    ACCIONES_LOGIN = [
+        ("login", "Inicio de sesión"),
+        ("logout", "Cierre de sesión"),
+    ]
+    usuario = models.ForeignKey(User, on_delete=models.PROTECT, related_name="login_logs")
+    accion = models.CharField(max_length=10, choices=ACCIONES_LOGIN)
+    fecha_hora = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.fecha_hora:%Y-%m-%d %H:%M} - {self.usuario.username} - {self.get_accion_display()}"

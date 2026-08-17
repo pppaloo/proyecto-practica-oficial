@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Local, Pago, Perfil
+from .models import Local, Pago, Perfil, LoginLog
 
 
 class PagoInline(admin.TabularInline):
@@ -24,3 +24,10 @@ class PagoAdmin(admin.ModelAdmin):
 class PerfilAdmin(admin.ModelAdmin):
     list_display = ("user", "rol")
     list_filter = ("rol",)
+
+
+@admin.register(LoginLog)
+class LoginLogAdmin(admin.ModelAdmin):
+    list_display = ("usuario", "accion", "fecha_hora")
+    list_filter = ("accion",)
+    ordering = ("-fecha_hora",)
