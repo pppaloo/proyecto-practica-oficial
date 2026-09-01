@@ -7,9 +7,8 @@ TIPOS_LOCAL = [
     ("pescaderia", "Pescadería"),
     ("lote6", "Lote 6"),
     ("kiosco", "Kiosco"),
+    ("centro_comercial", "Centro Comercial"),
 ]
-
-TIPOS_MENSUALES = ("boleteria", "pescaderia")
 
 ROLES = [
     ("caja", "Caja"),
@@ -20,6 +19,7 @@ ROLES = [
 ACCIONES = [
     ("crear", "Crear pago"),
     ("abonar", "Abonar"),
+    ("generar", "Generar deuda"),
 ]
 
 

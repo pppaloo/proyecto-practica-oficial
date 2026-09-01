@@ -5,13 +5,19 @@ from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
+from django.db.models import Max
 from django.shortcuts import redirect, render
 
-from .feriados import FERIADOS_2026, TIPOS_RESTRINGIDOS, dia_habil_para, mensaje_no_habil
+from .feriados import (
+    FERIADOS_2026,
+    TIPOS_RESTRINGIDOS,
+    dia_habil_para,
+    siguiente_dia_habil,
+    mensaje_no_habil,
+)
 from .models import (
     ROLES,
     TIPOS_LOCAL,
-    TIPOS_MENSUALES,
     Historial,
     Local,
     Pago,
@@ -22,6 +28,9 @@ MESES_ES = [
     "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
     "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
 ]
+
+DIAS_GENERACION = 5
+PREFIJO_FOLIO_GEN = "GEN"
 
 
 def registrar_historial(request, accion, tipo, folio, local_numero, monto):
@@ -66,10 +75,36 @@ def pagos(request, tipo="local"):
         tipo = "local"
 
     numero_filtro = request.GET.get("numero", "")
+    mes_filtro = request.GET.get("mes", "")
+    anio_filtro = request.GET.get("anio", "")
+    folio_filtro = request.GET.get("folio", "")
+    empresario_filtro = request.GET.get("empresario", "")
+
     pagos_lista = Pago.objects.filter(local__tipo=tipo)
     if numero_filtro:
         pagos_lista = pagos_lista.filter(local__numero__icontains=numero_filtro)
+    if mes_filtro:
+        pagos_lista = pagos_lista.filter(mes__icontains=mes_filtro)
+    if anio_filtro:
+        pagos_lista = pagos_lista.filter(fecha__year=anio_filtro)
+    if folio_filtro:
+        pagos_lista = pagos_lista.filter(folio__icontains=folio_filtro)
+    if empresario_filtro:
+        pagos_lista = pagos_lista.filter(empresario__icontains=empresario_filtro)
     pagos_lista = pagos_lista.select_related("local").order_by("-fecha")
+
+    from django.db.models import Count
+    años_disponibles = (
+        Pago.objects.filter(local__tipo=tipo)
+        .dates("fecha", "year")
+    )
+    años_lista = [a.year for a in años_disponibles]
+
+    orden_meses = [
+        "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+        "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+    ]
+    meses_lista = orden_meses
 
     es_caja = request.user.perfil.rol == "caja"
     es_admin = request.user.perfil.rol == "administrador"
@@ -77,13 +112,113 @@ def pagos(request, tipo="local"):
     context = {
         "tipos": TIPOS_LOCAL,
         "tipo_actual": tipo,
-        "tipo_mensual": tipo in TIPOS_MENSUALES,
         "pagos": pagos_lista,
         "numero_filtro": numero_filtro,
+        "mes_filtro": mes_filtro,
+        "anio_filtro": anio_filtro,
+        "folio_filtro": folio_filtro,
+        "empresario_filtro": empresario_filtro,
+        "años_lista": años_lista,
+        "meses_lista": meses_lista,
         "es_caja": es_caja,
         "es_admin": es_admin,
+        "generacion_disponible": es_caja and date.today().day <= DIAS_GENERACION,
     }
     return render(request, "core/pagos.html", context)
+
+
+def _datos_generacion(hoy):
+    periodo = f"{hoy.year}{hoy.month:02d}"
+    filas = []
+    for local in Local.objects.filter(ocupado=True).order_by("numero"):
+        ultimo = local.pagos.order_by("-fecha", "-id").first()
+        referencia = local.pagos.aggregate(v=Max("valor"))["v"] or Decimal("0")
+        filas.append({
+            "local": local,
+            "ultimo": ultimo,
+            "referencia": referencia,
+            "folio": f"{PREFIJO_FOLIO_GEN}-{periodo}-{local.numero}",
+            "existe": Pago.objects.filter(
+                folio=f"{PREFIJO_FOLIO_GEN}-{periodo}-{local.numero}"
+            ).exists(),
+            "fecha_aplicada": siguiente_dia_habil(local.tipo, hoy),
+        })
+    return filas
+
+
+@login_required
+def generar_deuda(request):
+    if request.user.perfil.rol != "caja":
+        messages.error(request, "No tienes permisos para generar la deuda.")
+        return redirect("pagos")
+
+    hoy = date.today()
+    if hoy.day > DIAS_GENERACION:
+        messages.error(
+            request,
+            "La generación automática solo está disponible los primeros 5 días del mes.",
+        )
+        return redirect("pagos")
+
+    filas = _datos_generacion(hoy)
+
+    if request.method == "POST":
+        creados = 0
+        omitidos = 0
+        total = Decimal("0")
+        for fila in filas:
+            if fila["existe"]:
+                continue
+            valor_post = request.POST.get(f"valor_{fila['local'].id}", "").strip()
+            try:
+                valor_dec = Decimal(valor_post) if valor_post else None
+            except InvalidOperation:
+                valor_dec = None
+            if valor_dec is None or valor_dec <= 0:
+                omitidos += 1
+                continue
+            if Pago.objects.filter(folio=fila["folio"]).exists():
+                omitidos += 1
+                continue
+            local = fila["local"]
+            ultimo = fila["ultimo"]
+            fecha_obj = fila["fecha_aplicada"]
+            Pago.objects.create(
+                local=local,
+                fecha=fecha_obj,
+                mes=MESES_ES[fecha_obj.month - 1],
+                empresario=ultimo.empresario if ultimo else "",
+                rut=ultimo.rut if ultimo else "",
+                descripcion=f"Deuda mensual {hoy.year}-{hoy.month:02d} generada automáticamente",
+                valor=valor_dec,
+                folio=fila["folio"],
+            )
+            registrar_historial(
+                request, "generar", local.tipo, fila["folio"], local.numero, valor_dec
+            )
+            creados += 1
+            total += valor_dec
+        if creados:
+            messages.success(
+                request,
+                f"Deuda del mes generada: {creados} registro(s) por ${total:,.0f}."
+                f" Omitidos: {omitidos}.",
+            )
+        else:
+            messages.error(request, "No se generó ningún registro nuevo.")
+        return redirect("pagos_tipo", tipo="local")
+
+    pendientes = [f for f in filas if not f["existe"]]
+    ya_generados = [f for f in filas if f["existe"]]
+    total_a_generar = sum((f["referencia"] for f in pendientes), Decimal("0"))
+    context = {
+        "filas": filas,
+        "pendientes": pendientes,
+        "ya_generados": ya_generados,
+        "total_a_generar": total_a_generar,
+        "periodo": f"{hoy.year}-{hoy.month:02d}",
+    }
+    return render(request, "core/generar_deuda.html", context)
 
 
 @login_required
@@ -162,7 +297,6 @@ def agregar_pago(request, tipo):
     from datetime import date
     context = {
         "tipo": tipo,
-        "tipo_mensual": tipo in TIPOS_MENSUALES,
         "hoy": date.today().isoformat(),
         "restringido": tipo in TIPOS_RESTRINGIDOS,
         "feriados": [f.isoformat() for f in FERIADOS_2026],

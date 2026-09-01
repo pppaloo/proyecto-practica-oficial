@@ -16,6 +16,7 @@ urlpatterns = [
     path('pagos/<str:tipo>/', views.pagos, name='pagos_tipo'),
     path('pagos/<str:tipo>/agregar/', views.agregar_pago, name='agregar_pago'),
     path('pagos/<str:tipo>/abonar/<str:folio>/', views.abonar_pago, name='abonar_pago'),
+    path('pagos/generar-deuda/', views.generar_deuda, name='generar_deuda'),
     path('locales-desocupados/', views.locales_desocupados, name='locales_desocupados'),
     path('historial/', views.historial, name='historial'),
     path('usuarios/', views.usuarios_admin, name='usuarios_admin'),

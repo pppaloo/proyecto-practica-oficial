@@ -35,3 +35,9 @@ def mensaje_no_habil(tipo, fecha):
     if fecha.weekday() == 6:
         return "Este tipo de local no paga domingos."
     return "Este tipo de local no paga feriados."
+
+
+def siguiente_dia_habil(tipo, fecha):
+    while not dia_habil_para(tipo, fecha):
+        fecha = fecha + datetime.timedelta(days=1)
+    return fecha

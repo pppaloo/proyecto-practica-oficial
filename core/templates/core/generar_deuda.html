@@ -1,0 +1,79 @@
+{% extends "core/base.html" %}
+{% load humanize %}
+{% block title %}Generar deuda del mes - Vega Los Ángeles{% endblock %}
+{% block content %}
+<div class="card">
+    <h2 style="color: #1b4d3e; margin-bottom: 12px;">Generar deuda del mes {{ periodo }}</h2>
+    <p style="margin-bottom: 16px; color: #555;">
+        Se creará un registro de deuda por cada local ocupado hasta el fin de mes.
+        El monto se precarga con el mayor registro anterior de cada local: ajústalo si es necesario.
+        Si dejas un monto vacío o en 0, ese local se omite.
+    </p>
+
+    <form method="post">
+        {% csrf_token %}
+        <table>
+            <thead>
+                <tr>
+                    <th>N° Local</th>
+                    <th>Tipo</th>
+                    <th>Empresario</th>
+                    <th>RUT</th>
+                    <th>Fecha asignada</th>
+                    <th>Monto a generar</th>
+                    <th>Folio</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for fila in pendientes %}
+                <tr>
+                    <td>{{ fila.local.numero }}</td>
+                    <td>{{ fila.local.get_tipo_display }}</td>
+                    <td>{{ fila.ultimo.empresario|default:"—" }}</td>
+                    <td>{{ fila.ultimo.rut|default:"—" }}</td>
+                    <td>{{ fila.fecha_aplicada|date:"d/m/Y" }}</td>
+                    <td><input type="number" name="valor_{{ fila.local.id }}" step="0.01" min="0" value="{{ fila.referencia|stringformat:"s" }}" style="width: 130px;"></td>
+                    <td><small>{{ fila.folio }}</small></td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="7" class="vacio">No hay locales ocupados pendientes para generar deuda.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        {% if pendientes %}
+        <div class="toolbar" style="margin-top: 20px;">
+            <p style="font-size: 15px; font-weight: 600; color: #1b4d3e;">
+                Total precargado: ${{ total_a_generar|floatformat:0|intcomma }}
+            </p>
+            <button class="btn btn-primary" type="submit" style="margin-left: auto;">Generar deuda</button>
+            <a class="btn btn-outline" href="{% url 'pagos' %}">Cancelar</a>
+        </div>
+        {% endif %}
+    </form>
+
+    {% if ya_generados %}
+    <h3 style="color: #1b4d3e; margin-top: 24px; margin-bottom: 10px;">Ya generados este mes</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>N° Local</th>
+                <th>Empresario</th>
+                <th>Monto</th>
+                <th>Folio</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for fila in ya_generados %}
+            <tr>
+                <td>{{ fila.local.numero }}</td>
+                <td>{{ fila.ultimo.empresario|default:"—" }}</td>
+                <td>${{ fila.referencia|floatformat:0|intcomma }}</td>
+                <td>{{ fila.folio }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
+</div>
+{% endblock %}

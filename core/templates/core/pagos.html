@@ -10,24 +10,51 @@
 
 <div class="card">
     <div class="toolbar">
-        <form method="get" style="display: flex; gap: 8px; align-items: center;">
-            <input type="text" name="numero" value="{{ numero_filtro }}" placeholder="Buscar N° de local..." style="width: 220px;">
+        <form method="get" class="filtros" id="filtros-form">
+            <input type="text" name="numero" value="{{ numero_filtro }}" placeholder="N° local" class="filtro-input">
+            <select name="mes" class="filtro-input" onchange="this.form.submit()">
+                <option value="">Todos</option>
+                {% for mes in meses_lista %}
+                <option value="{{ mes }}" {% if mes == mes_filtro %}selected{% endif %}>{{ mes }}</option>
+                {% endfor %}
+            </select>
+            <select name="anio" class="filtro-input" onchange="this.form.submit()">
+                <option value="">Todos</option>
+                {% for año in años_lista %}
+                <option value="{{ año }}" {% if año == anio_filtro %}selected{% endif %}>{{ año }}</option>
+                {% endfor %}
+            </select>
+            <input type="text" name="folio" value="{{ folio_filtro }}" placeholder="Folio" class="filtro-input">
+            <input type="text" name="empresario" value="{{ empresario_filtro }}" placeholder="Empresario" class="filtro-input">
             <button class="btn btn-primary" type="submit">Buscar</button>
+            {% if numero_filtro or mes_filtro or anio_filtro or folio_filtro or empresario_filtro %}
+            <a class="btn btn-outline" href="{% url 'pagos_tipo' tipo_actual %}">Limpiar</a>
+            {% endif %}
         </form>
         {% if es_caja %}
         <a class="btn btn-primary" href="{% url 'agregar_pago' tipo_actual %}" style="margin-left: auto;">+ Agregar</a>
         {% endif %}
+        {% if generacion_disponible %}
+        <a class="btn btn-danger" href="{% url 'generar_deuda' %}">Generar deuda del mes</a>
+        {% endif %}
     </div>
 
-    {% if tipo_mensual %}
-    <p class="mensual" style="margin-bottom: 12px;">Valor mensual</p>
-    {% else %}
-    <p class="mensual" style="margin-bottom: 12px;">Valor diario</p>
-    {% endif %}
+    <p style="font-size: 13px; color: #555; margin-bottom: 12px;">
+        Selecciona las casillas de los registros para sumarlos al tiro (solo de la misma persona).
+    </p>
+
+    <div id="seleccion-resumen" class="seleccion-resumen" style="display: none;">
+        <span id="seleccion-texto"></span>
+        <button type="button" id="limpiar-seleccion" class="btn btn-outline btn-limpiar">Limpiar selección</button>
+    </div>
+    <p id="seleccion-aviso" class="seleccion-aviso" style="display: none;">
+        Solo puedes seleccionar registros de la misma persona.
+    </p>
 
     <table>
         <thead>
             <tr>
+                <th class="check-col" title="Seleccionar"></th>
                 <th>N° Local</th>
                 <th>Fecha</th>
                 <th>Mes</th>
@@ -42,7 +69,11 @@
         </thead>
         <tbody>
             {% for pago in pagos %}
-            <tr>
+            <tr data-folio="{{ pago.folio }}"
+                data-valor="{{ pago.valor }}"
+                data-rut="{{ pago.rut }}"
+                data-empresario="{{ pago.empresario }}">
+                <td class="check-col"><input type="checkbox" class="check-pago"></td>
                 <td>{{ pago.local.numero }}</td>
                 <td>{{ pago.fecha|date:"d/m/Y" }}</td>
                 <td>{{ pago.mes }}</td>
@@ -57,9 +88,83 @@
                 {% endif %}
             </tr>
             {% empty %}
-            <tr><td colspan="10" class="vacio">No hay pagos registrados{% if numero_filtro %} para ese número{% endif %}.</td></tr>
+            <tr><td colspan="{% if es_caja %}11{% else %}10{% endif %}" class="vacio">No hay pagos registrados{% if numero_filtro %} para ese número{% endif %}.</td></tr>
             {% endfor %}
         </tbody>
     </table>
 </div>
+
+<script>
+(function () {
+    var filas = Array.prototype.slice.call(document.querySelectorAll("tr[data-folio]"));
+    if (!filas.length) return;
+
+    var resumen = document.getElementById("seleccion-resumen");
+    var texto = document.getElementById("seleccion-texto");
+    var aviso = document.getElementById("seleccion-aviso");
+    var botonLimpiar = document.getElementById("limpiar-seleccion");
+
+    function clavePersona(fila) {
+        var rut = (fila.getAttribute("data-rut") || "").trim().toLowerCase();
+        var empresario = (fila.getAttribute("data-empresario") || "").trim().toLowerCase();
+        return rut || empresario;
+    }
+
+    function formatearMonto(n) {
+        return "$" + n.toLocaleString("es-CL", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+    }
+
+    function actualizar() {
+        var cantidad = 0;
+        var total = 0;
+        filas.forEach(function (fila) {
+            var check = fila.querySelector(".check-pago");
+            fila.classList.toggle("fila-seleccionada", check.checked);
+            if (check.checked) {
+                cantidad += 1;
+                total += parseFloat(fila.getAttribute("data-valor")) || 0;
+            }
+        });
+        if (cantidad > 0) {
+            texto.textContent = "Seleccionados: " + cantidad + " · Total: " + formatearMonto(total);
+            resumen.style.display = "flex";
+        } else {
+            resumen.style.display = "none";
+        }
+    }
+
+    filas.forEach(function (fila) {
+        var check = fila.querySelector(".check-pago");
+        check.addEventListener("change", function () {
+            if (!check.checked) {
+                aviso.style.display = "none";
+                actualizar();
+                return;
+            }
+            var claves = {};
+            filas.forEach(function (f) {
+                if (f.querySelector(".check-pago").checked) {
+                    claves[clavePersona(f)] = true;
+                }
+            });
+            if (Object.keys(claves).length > 1) {
+                check.checked = false;
+                aviso.style.display = "block";
+            } else {
+                aviso.style.display = "none";
+            }
+            actualizar();
+        });
+    });
+
+    botonLimpiar.addEventListener("click", function () {
+        filas.forEach(function (fila) {
+            fila.querySelector(".check-pago").checked = false;
+            fila.classList.remove("fila-seleccionada");
+        });
+        aviso.style.display = "none";
+        actualizar();
+    });
+})();
+</script>
 {% endblock %}

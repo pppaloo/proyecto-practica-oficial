@@ -46,6 +46,8 @@ Abrir http://127.0.0.1:8000
 
 - Registro de pagos por tipo de local (el mes se autocompleta desde la fecha elegida).
 - El calendario bloquea domingos y feriados para Lote 6 y Kiosco.
+- Generación automática de la deuda del mes: disponible solo los primeros 5 días de cada mes; crea un registro por local ocupado hasta el fin de mes (folio `GEN-AAAAMM-N°`, monto precargado con el mayor registro anterior y editable antes de confirmar).
+- Selección múltiple de registros de una misma persona con suma total al instante.
 - Abonos parciales (al saldar se marca la fecha de pago).
 - Búsqueda por N° de local.
 - Locales desocupados.
@@ -62,10 +64,11 @@ Abrir http://127.0.0.1:8000
 
 ## Tipos de local
 
-- Local (valor diario)
-- Boletería (valor mensual)
-- Pescadería (valor mensual)
-- Lote 6 (valor diario, no paga domingos ni feriados)
-- Kiosco (valor diario, no paga domingos ni feriados)
+- Local
+- Boletería
+- Pescadería
+- Lote 6 (no paga domingos ni feriados)
+- Kiosco (no paga domingos ni feriados)
+- Centro Comercial
 
 Los feriados se definen en `core/feriados.py`.

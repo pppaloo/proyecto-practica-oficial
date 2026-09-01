@@ -5,11 +5,6 @@
     <h2 style="color: #1b4d3e; margin-bottom: 20px;">Agregar registro</h2>
     <p style="margin-bottom: 16px; color: #555;">
         Tipo: <strong>{{ tipo }}</strong>
-        {% if tipo_mensual %}
-        · Valor mensual
-        {% else %}
-        · Valor diario
-        {% endif %}
         {% if restringido %}
         · <span class="mensual">No paga domingos ni feriados</span>
         {% endif %}
