@@ -17,7 +17,7 @@
                 <option value="{{ año }}" {% if año == anio_filtro %}selected{% endif %}>{{ año }}</option>
                 {% endfor %}
             </select>
-            <a class="btn btn-primary" href="{% url 'reportes' %}?tipo={{ tipo_filtro }}&anio={{ anio_filtro }}&exportar=1">Descargar CSV</a>
+            <a class="btn btn-primary" href="{% url 'reportes' %}?tipo={{ tipo_filtro }}&anio={{ anio_filtro }}&exportar=1">Descargar Excel</a>
         </form>
     </div>
 

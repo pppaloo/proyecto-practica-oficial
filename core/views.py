@@ -526,17 +526,38 @@ def reportes(request):
     }
 
     if exportar:
-        import csv
+        from django.http import HttpResponse
+        from openpyxl import Workbook
+        from openpyxl.styles import Font
 
-        response = HttpResponse(content_type="text/csv")
-        response["Content-Disposition"] = 'attachment; filename="reporte_vega.csv"'
-        writer = csv.writer(response)
-        writer.writerow(["Tipo de local", "Cantidad", "Total recaudado"])
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Reporte Vega"
+
+        ws.append(["Tipo de local", "Cantidad", "Total recaudado"])
+        for celda in ws[1]:
+            celda.font = Font(bold=True)
+
         for fila in resumen_tipos:
-            writer.writerow([fila["nombre"], fila["cantidad"], f'{fila["total"]:.0f}'])
-        writer.writerow([])
-        writer.writerow(["TOTAL GENERAL", cantidad, f"{total_general:.0f}"])
-        writer.writerow(["TOTAL PENDIENTE", "", f"{total_pendiente:.0f}"])
+            ws.append([fila["nombre"], fila["cantidad"], float(fila["total"])])
+
+        ws.append([])
+        ws.append(["TOTAL GENERAL", cantidad, float(total_general)])
+        ws.append(["TOTAL PENDIENTE", "", float(total_pendiente)])
+        ws.append([])
+        ws.append(["Generado", date.today().isoformat()])
+
+        for celda in (ws[ws.max_row - 3][0], ws[ws.max_row - 2][0]):
+            celda.font = Font(bold=True)
+
+        for col, ancho in zip("ABC", (24, 12, 18)):
+            ws.column_dimensions[col].width = ancho
+
+        response = HttpResponse(
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        response["Content-Disposition"] = 'attachment; filename="reporte_vega.xlsx"'
+        wb.save(response)
         return response
 
     return render(request, "core/reportes.html", context)
