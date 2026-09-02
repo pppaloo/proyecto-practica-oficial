@@ -34,6 +34,7 @@
         {% if es_caja %}
         <a class="btn btn-primary" href="{% url 'agregar_pago' tipo_actual %}" style="margin-left: auto;">+ Agregar</a>
         {% endif %}
+        <a class="btn btn-outline" href="{% url 'reportes' %}">Reportes</a>
         {% if generacion_disponible %}
         <a class="btn btn-danger" href="{% url 'generar_deuda' %}">Generar deuda del mes</a>
         {% endif %}
@@ -84,7 +85,11 @@
                 <td>{{ pago.fecha_pago|date:"d/m/Y"|default:"—" }}</td>
                 <td>{{ pago.folio }}</td>
                 {% if es_caja %}
-                <td><a class="btn btn-outline btn-abonar" href="{% url 'abonar_pago' tipo_actual pago.folio %}">Abonar</a></td>
+                <td>
+                    <a class="btn btn-outline btn-abonar" href="{% url 'abonar_pago' tipo_actual pago.folio %}">Abonar</a>
+                    <a class="btn btn-outline btn-abonar" href="{% url 'editar_pago' tipo_actual pago.folio %}">Editar</a>
+                    <a class="btn btn-outline btn-abonar" style="color:#b33939;border-color:#b33939;" href="{% url 'eliminar_pago' tipo_actual pago.folio %}">Eliminar</a>
+                </td>
                 {% endif %}
             </tr>
             {% empty %}

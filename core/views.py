@@ -5,8 +5,9 @@ from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
-from django.db.models import Max
+from django.db.models import Max, Sum
 from django.shortcuts import redirect, render
+from django.http import HttpResponse
 
 from .feriados import (
     FERIADOS_2026,
@@ -336,8 +337,97 @@ def abonar_pago(request, tipo, folio):
             messages.error(request, f"No se pudo abonar: {e}")
         return redirect("pagos_tipo", tipo=tipo)
 
+
+@login_required
+def editar_pago(request, tipo, folio):
+    if request.user.perfil.rol != "caja":
+        messages.error(request, "No tienes permisos para editar pagos.")
+        return redirect("pagos_tipo", tipo=tipo)
+
+    try:
+        pago = Pago.objects.select_related("local").get(folio=folio)
+    except Pago.DoesNotExist:
+        messages.error(request, "No se encontró el registro con ese folio.")
+        return redirect("pagos_tipo", tipo=tipo)
+
+    if request.method == "POST":
+        try:
+            fecha = request.POST.get("fecha", "").strip()
+            mes = request.POST.get("mes", "").strip()
+            empresario = request.POST.get("empresario", "").strip()
+            rut = request.POST.get("rut", "").strip()
+            descripcion = request.POST.get("descripcion", "").strip()
+            valor = request.POST.get("valor", "").strip()
+            fecha_pago = request.POST.get("fecha_pago", "").strip() or None
+
+            from datetime import datetime
+
+            if not fecha:
+                raise ValueError("La fecha es obligatoria.")
+            fecha_obj = datetime.strptime(fecha, "%Y-%m-%d").date()
+
+            if not dia_habil_para(tipo, fecha_obj):
+                raise ValueError(mensaje_no_habil(tipo, fecha_obj))
+
+            if not mes:
+                mes = MESES_ES[fecha_obj.month - 1]
+
+            valor_dec = Decimal(valor)
+            if valor_dec < 0:
+                raise ValueError("El valor no puede ser negativo.")
+
+            fecha_pago_obj = None
+            if fecha_pago:
+                fecha_pago_obj = datetime.strptime(fecha_pago, "%Y-%m-%d").date()
+
+            pago.fecha = fecha_obj
+            pago.mes = mes
+            pago.empresario = empresario
+            pago.rut = rut
+            pago.descripcion = descripcion
+            pago.valor = valor_dec
+            pago.fecha_pago = fecha_pago_obj
+            pago.save()
+
+            registrar_historial(
+                request, "editar", pago.local.tipo, pago.folio, pago.local.numero, valor_dec
+            )
+            messages.success(request, "Registro actualizado correctamente.")
+            return redirect("pagos_tipo", tipo=tipo)
+        except (ValueError, InvalidOperation) as e:
+            messages.error(request, f"No se pudo actualizar: {e}")
+
+    context = {
+        "pago": pago,
+        "tipo": tipo,
+        "restringido": tipo in TIPOS_RESTRINGIDOS,
+        "feriados": [f.isoformat() for f in FERIADOS_2026],
+    }
+    return render(request, "core/editar_pago.html", context)
+
+
+@login_required
+def eliminar_pago(request, tipo, folio):
+    if request.user.perfil.rol != "caja":
+        messages.error(request, "No tienes permisos para eliminar pagos.")
+        return redirect("pagos_tipo", tipo=tipo)
+
+    try:
+        pago = Pago.objects.select_related("local").get(folio=folio)
+    except Pago.DoesNotExist:
+        messages.error(request, "No se encontró el registro.")
+        return redirect("pagos_tipo", tipo=tipo)
+
+    if request.method == "POST":
+        registrar_historial(
+            request, "eliminar", pago.local.tipo, pago.folio, pago.local.numero, pago.valor
+        )
+        pago.delete()
+        messages.success(request, "Registro eliminado correctamente.")
+        return redirect("pagos_tipo", tipo=tipo)
+
     context = {"pago": pago, "tipo": tipo}
-    return render(request, "core/abonar.html", context)
+    return render(request, "core/eliminar_pago.html", context)
 
 
 @login_required
@@ -391,3 +481,62 @@ def usuarios_admin(request):
     usuarios = Perfil.objects.select_related("user").order_by("user__username")
     context = {"usuarios": usuarios, "roles": ROLES}
     return render(request, "core/usuarios.html", context)
+
+
+@login_required
+def reportes(request):
+    tipo = request.GET.get("tipo", "")
+    anio = request.GET.get("anio", "")
+    exportar = request.GET.get("exportar", "")
+
+    base = Pago.objects.all()
+    if tipo:
+        base = base.filter(local__tipo=tipo)
+    if anio:
+        base = base.filter(fecha__year=anio)
+
+    total_general = base.aggregate(total=Sum("valor"))["total"] or Decimal("0")
+    total_pendiente = base.filter(valor__gt=0).aggregate(total=Sum("valor"))["total"] or Decimal("0")
+    cantidad = base.count()
+
+    resumen_tipos = []
+    for valor, nombre in TIPOS_LOCAL:
+        qs = base.filter(local__tipo=valor)
+        tot = qs.aggregate(t=Sum("valor"))["t"] or Decimal("0")
+        cant = qs.count()
+        if cant:
+            resumen_tipos.append({
+                "codigo": valor,
+                "nombre": nombre,
+                "total": tot,
+                "cantidad": cant,
+            })
+
+    años_disponibles = [a.year for a in Pago.objects.dates("fecha", "year")]
+
+    context = {
+        "tipos": TIPOS_LOCAL,
+        "tipo_filtro": tipo,
+        "anio_filtro": anio,
+        "años_lista": años_disponibles,
+        "resumen_tipos": resumen_tipos,
+        "total_general": total_general,
+        "total_pendiente": total_pendiente,
+        "cantidad": cantidad,
+    }
+
+    if exportar:
+        import csv
+
+        response = HttpResponse(content_type="text/csv")
+        response["Content-Disposition"] = 'attachment; filename="reporte_vega.csv"'
+        writer = csv.writer(response)
+        writer.writerow(["Tipo de local", "Cantidad", "Total recaudado"])
+        for fila in resumen_tipos:
+            writer.writerow([fila["nombre"], fila["cantidad"], f'{fila["total"]:.0f}'])
+        writer.writerow([])
+        writer.writerow(["TOTAL GENERAL", cantidad, f"{total_general:.0f}"])
+        writer.writerow(["TOTAL PENDIENTE", "", f"{total_pendiente:.0f}"])
+        return response
+
+    return render(request, "core/reportes.html", context)

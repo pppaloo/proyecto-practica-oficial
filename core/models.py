@@ -19,6 +19,8 @@ ROLES = [
 ACCIONES = [
     ("crear", "Crear pago"),
     ("abonar", "Abonar"),
+    ("editar", "Editar pago"),
+    ("eliminar", "Eliminar pago"),
     ("generar", "Generar deuda"),
 ]
 

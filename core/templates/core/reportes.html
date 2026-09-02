@@ -1,0 +1,60 @@
+{% extends "core/base.html" %}
+{% load humanize %}
+{% block title %}Reportes - Vega Los Ángeles{% endblock %}
+{% block content %}
+<div class="card">
+    <div class="toolbar">
+        <form method="get" class="filtros" id="filtros-form">
+            <select name="tipo" onchange="this.form.submit()">
+                <option value="">Todos los tipos</option>
+                {% for valor, nombre in tipos %}
+                <option value="{{ valor }}" {% if valor == tipo_filtro %}selected{% endif %}>{{ nombre }}</option>
+                {% endfor %}
+            </select>
+            <select name="anio" onchange="this.form.submit()">
+                <option value="">Todos</option>
+                {% for año in años_lista %}
+                <option value="{{ año }}" {% if año == anio_filtro %}selected{% endif %}>{{ año }}</option>
+                {% endfor %}
+            </select>
+            <a class="btn btn-primary" href="{% url 'reportes' %}?tipo={{ tipo_filtro }}&anio={{ anio_filtro }}&exportar=1">Descargar CSV</a>
+        </form>
+    </div>
+
+    <div style="display: flex; gap: 16px; margin-bottom: 20px; flex-wrap: wrap;">
+        <div style="background:#e8f0ed; padding:14px 20px; border-radius:8px; flex:1; min-width:150px;">
+            <div style="font-size:12px; color:#1b4d3e;">Total recaudado</div>
+            <div style="font-size:22px; font-weight:700; color:#14532d;">${{ total_general|floatformat:0 }}</div>
+        </div>
+        <div style="background:#fdf2f2; padding:14px 20px; border-radius:8px; flex:1; min-width:150px;">
+            <div style="font-size:12px; color:#7f1d1d;">Total pendiente</div>
+            <div style="font-size:22px; font-weight:700; color:#b33939;">${{ total_pendiente|floatformat:0 }}</div>
+        </div>
+        <div style="background:#f0f4f6; padding:14px 20px; border-radius:8px; flex:1; min-width:150px;">
+            <div style="font-size:12px; color:#333;">Registros</div>
+            <div style="font-size:22px; font-weight:700; color:#333;">{{ cantidad }}</div>
+        </div>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Tipo de local</th>
+                <th>Cantidad</th>
+                <th>Total recaudado</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for fila in resumen_tipos %}
+            <tr>
+                <td>{{ fila.nombre }}</td>
+                <td>{{ fila.cantidad }}</td>
+                <td>${{ fila.total|floatformat:0|intcomma }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="3" class="vacio">No hay datos para los filtros seleccionados.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
