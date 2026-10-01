@@ -42,6 +42,35 @@ python manage.py runserver
 
 Abrir http://127.0.0.1:8000
 
+## Instalar en otra PC (la PC donde quedará el sistema)
+
+1. Instalar **Python 3.10–3.13** marcando "Add python.exe to PATH".
+2. Instalar **MySQL Server 8** (recordar la password de `root`).
+3. Clonar el repo y entrar en la carpeta:
+
+```
+git clone https://github.com/pppaloo/proyecto-practica-oficial.git
+cd proyecto-practica-oficial
+```
+
+4. Ejecutar el instalador (crea la BD, configura `settings.py`, instala dependencias, migra y crea el admin):
+
+```
+python instalar.py
+```
+
+5. Iniciar el sistema:
+
+```
+iniciar.bat
+```
+
+Abrir http://127.0.0.1:8000 (en la misma PC). Desde **otra PC de la red**: `http://IP_DE_ESTA_PC:8000` (permitir el puerto 8000 en el Firewall de Windows).
+
+- **Respaldar datos:** `respaldar.bat` crea `respaldo_centro_comercial.sql`.
+- **Restaurar datos:** `restaurar.bat` carga ese respaldo en otra PC.
+- No subir `practicavega/settings.py` modificado a GitHub (contiene la password de MySQL).
+
 ## Funcionalidades
 
 - Registro de pagos por tipo de local (el mes se autocompleta desde la fecha elegida).
