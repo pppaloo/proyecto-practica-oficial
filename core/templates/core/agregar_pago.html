@@ -1,9 +1,9 @@
 {% extends "core/base.html" %}
 {% block title %}Agregar registro - Vega Los Ángeles{% endblock %}
 {% block content %}
-<div class="card" style="max-width: 700px;">
-    <h2 style="color: #1b4d3e; margin-bottom: 20px;">Agregar registro</h2>
-    <p style="margin-bottom: 16px; color: #555;">
+<div class="card card-angosta">
+    <h2 class="h2-seccion">Agregar registro</h2>
+    <p class="parrafo-info">
         Tipo: <strong>{{ tipo }}</strong>
         {% if restringido %}
         · <span class="mensual">No paga domingos ni feriados</span>
@@ -19,7 +19,8 @@
             <div class="form-group">
                 <label>Fecha *</label>
                 <input type="date" id="id_fecha" name="fecha" required value="{{ hoy }}">
-                <small id="id_fecha_aviso" style="color:#b33939; display:none;"></small>
+                <small id="id_fecha_aviso" class="aviso-error"></small>
+                <small id="id_dias_aviso" class="aviso-ok"></small>
             </div>
             <input type="hidden" id="id_mes" name="mes">
             <div class="form-group">
@@ -35,6 +36,26 @@
                 <input type="text" name="descripcion">
             </div>
             <div class="form-group">
+                <label>Tipo Deuda</label>
+                <input type="text" name="tipo_deuda">
+            </div>
+            <div class="form-group">
+                <label>Domicilio</label>
+                <input type="text" name="domicilio">
+            </div>
+            <div class="form-group">
+                <label>Fono</label>
+                <input type="text" name="fono">
+            </div>
+            <div class="form-group">
+                <label>Correo</label>
+                <input type="text" name="correo">
+            </div>
+            <div class="form-group">
+                <label>Periodo</label>
+                <input type="text" name="periodo">
+            </div>
+            <div class="form-group">
                 <label>Valor *</label>
                 <input type="number" name="valor" step="0.01" min="0" required>
             </div>
@@ -47,7 +68,7 @@
                 <input type="text" name="folio" required>
             </div>
         </div>
-        <div style="margin-top: 20px; display: flex; gap: 10px;">
+        <div class="acciones mt20">
             <button class="btn btn-primary" type="submit">Guardar</button>
             <a class="btn btn-outline" href="{% url 'pagos_tipo' tipo %}">Cancelar</a>
         </div>
@@ -74,8 +95,31 @@
         return d.getDay() === 0 || FERIADOS.has(fecha);
     }
 
+    function diasDelMes(anio, mes) {
+        return new Date(anio, mes, 0).getDate();
+    }
+
+    function actualizarAvisoDias() {
+        const avisoDias = document.getElementById("id_dias_aviso");
+        const fecha = fechaInput.value;
+        if (!fecha) { avisoDias.style.display = "none"; return; }
+        const [a, m] = fecha.split("-").map(Number);
+        const total = diasDelMes(a, m);
+        let habiles = 0;
+        for (let d = 1; d <= total; d++) {
+            const iso = a + "-" + String(m).padStart(2, "0") + "-" + String(d).padStart(2, "0");
+            if (RESTRINGIDO && esDiaNoHabil(iso)) continue;
+            habiles++;
+        }
+        avisoDias.textContent = RESTRINGIDO
+            ? "Días de " + MESES[m - 1] + ": " + habiles + " hábiles (sin domingos ni feriados)"
+            : "Días de " + MESES[m - 1] + ": " + total + " → se ingresarán automáticamente al guardar";
+        avisoDias.style.display = "block";
+    }
+
     function validarFecha() {
         actualizarMes();
+        actualizarAvisoDias();
         if (!RESTRINGIDO) { aviso.style.display = "none"; return; }
         const fecha = fechaInput.value;
         if (fecha && esDiaNoHabil(fecha)) {

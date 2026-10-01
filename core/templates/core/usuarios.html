@@ -1,10 +1,11 @@
 {% extends "core/base.html" %}
+{% load humanize %}
 {% block title %}Usuarios - Vega Los Ángeles{% endblock %}
 {% block content %}
-<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+<div class="grid-usuarios">
     <div class="card">
-        <h2 style="color: #1b4d3e; margin-bottom: 16px;">Crear nuevo usuario</h2>
-        <form method="post" style="display: flex; flex-direction: column; gap: 12px;">
+        <h2 class="h2-seccion mb16">Crear nuevo usuario</h2>
+        <form method="post" class="form-columna">
             {% csrf_token %}
             <input type="hidden" name="accion" value="crear">
             <div class="form-group">
@@ -28,7 +29,7 @@
     </div>
 
     <div class="card">
-        <h2 style="color: #1b4d3e; margin-bottom: 16px;">Usuarios del sistema</h2>
+        <h2 class="h2-seccion mb16">Usuarios del sistema</h2>
         <table>
             <thead>
                 <tr>
@@ -43,11 +44,11 @@
                     <td>{{ perfil.user.username }}</td>
                     <td>{{ perfil.get_rol_display }}</td>
                     <td>
-                        <form method="post" style="display: flex; gap: 6px; align-items: center;">
+                        <form method="post" class="rol-form">
                             {% csrf_token %}
                             <input type="hidden" name="accion" value="cambiar_rol">
                             <input type="hidden" name="username" value="{{ perfil.user.username }}">
-                            <select name="rol" style="padding: 4px;">
+                            <select name="rol" class="rol-select">
                                 {% for valor, nombre in roles %}
                                 <option value="{{ valor }}" {% if valor == perfil.rol %}selected{% endif %}>{{ nombre }}</option>
                                 {% endfor %}
@@ -59,6 +60,34 @@
                 {% endfor %}
             </tbody>
         </table>
+    </div>
+
+    <div class="card card-scroll">
+        <h2 class="h2-seccion mb16">Historial de operaciones e ingresos</h2>
+        {% if registros %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Fecha y hora</th>
+                    <th>Usuario</th>
+                    <th>Acción</th>
+                    <th>Detalle</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in registros %}
+                <tr class="reg-{{ r.tipo }}">
+                    <td>{{ r.fecha_hora|date:"d/m/Y H:i" }}</td>
+                    <td>{{ r.usuario }}</td>
+                    <td>{{ r.accion }}</td>
+                    <td>{% if r.monto is not None %}{{ r.local }} · {{ r.folio }} · ${{ r.monto|floatformat:0|intcomma }}{% else %}—{% endif %}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="vacio">Aún no hay registros.</p>
+        {% endif %}
     </div>
 </div>
 {% endblock %}

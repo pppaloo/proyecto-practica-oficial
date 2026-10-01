@@ -1,3 +1,4 @@
+{% load humanize %}
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -26,15 +27,18 @@
         .sidebar .vacío { color: #aaa; font-size: 13px; font-style: italic; padding: 10px; }
 
         .main { flex: 1; padding: 24px; overflow-x: auto; margin-top: 56px; }
-        .container { max-width: 1200px; }
+        .container { width: 100%; max-width: none; }
 
         .tabs { display: flex; gap: 4px; margin-bottom: 16px; flex-wrap: wrap; }
         .tab { padding: 10px 18px; background: #e3e9e6; border-radius: 6px 6px 0 0; text-decoration: none; color: #333; font-size: 14px; font-weight: 500; }
         .tab.active { background: #1b4d3e; color: #fff; }
-        .card { background: #fff; border-radius: 8px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+        .card { background: #fff; border-radius: 8px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,.08); width: 100%; }
         .toolbar { display: flex; gap: 10px; margin-bottom: 16px; align-items: center; flex-wrap: wrap; }
         .filtros { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
         .filtro-input { width: 130px; }
+        .filtro-rango { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; color: #374151; }
+        .filtro-rango .filtro-input { width: 112px; }
+        .filtro-etiqueta { font-weight: 700; color: #1b4d3e; }
         input[type="text"], input[type="password"], input[type="number"], input[type="date"], select {
             padding: 8px 10px; border: 1px solid #cbd5d1; border-radius: 6px; font-size: 14px;
         }
@@ -57,17 +61,140 @@
         .form-group label { font-size: 13px; color: #444; }
         .btn-abonar { font-size: 12px; padding: 4px 10px; }
         .vacio { text-align: center; padding: 30px; color: #888; }
-        .check-col { width: 36px; text-align: center; }
-        input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; accent-color: #1b4d3e; }
-        tr.fila-seleccionada td { background: #dcebe3; }
-        .seleccion-resumen {
-            display: flex; align-items: center; gap: 12px;
-            background: #e8f0ed; border: 1px solid #1b4d3e; border-radius: 6px;
-            padding: 10px 14px; margin-bottom: 10px;
-            font-size: 15px; font-weight: 600; color: #1b4d3e;
+        .btn-editar { font-size: 12px; padding: 4px 10px; margin-right: 4px; }
+        .btn-editar.activo { background: #1b4d3e; color: #fff; border-color: #1b4d3e; }
+        .campo-input {
+            width: 100%; min-width: 70px; padding: 8px 10px;
+            border: 1px solid #34d399; border-radius: 4px; font-size: 13px;
         }
-        .btn-limpiar { font-size: 12px; padding: 4px 10px; margin-left: auto; }
-        .seleccion-aviso { color: #b33939; font-size: 13px; font-weight: 600; margin-bottom: 10px; }
+        .campo-input::-webkit-outer-spin-button,
+        .campo-input::-webkit-inner-spin-button {
+            -webkit-appearance: none; margin: 0;
+        }
+        .campo-input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+        .pago-fila td, .pago-fila input { white-space: normal; }
+        .pago-fila td { overflow-wrap: anywhere; }
+        tbody.pago-grupo.edicion > tr > td {
+            padding: 10px 8px;
+            background: #f0fdf4;
+            box-shadow: inset 0 0 0 2px #34d399, 0 0 12px rgba(52, 211, 153, 0.55);
+        }
+        tr.desglose-fila > td {
+            padding: 0;
+            background: #f7faf9;
+            box-shadow: inset 0 0 0 1px #b9d3c8;
+        }
+        tr.reg-operacion td { background: #f5f5fb; }
+        tr.reg-ingreso td { background: #f0f9f4; }
+        tr.reg-salida td { background: #fdf6f6; }
+        .desglose-contenedor { padding: 8px 12px; }
+        .desglose-tabla { margin-top: 6px; }
+        .desglose-tabla th { background: #2f6b57; }
+        .desglose-tabla th, .desglose-tabla td { font-size: 11px; padding: 2px 6px; }
+        .desglose-contenedor input {
+            font-size: 11px; padding: 2px 6px; border: 1px solid #cdd9d4;
+            border-radius: 4px;
+        }
+        .desglose-tabla .num-dia { font-size: 11px; font-weight: 600; }
+        .desglose-tabla tbody .desglose-fila-dia:nth-child(odd) td { background: #ffffff; }
+        .desglose-tabla tbody .desglose-fila-dia:nth-child(even) td { background: #eef4f1; }
+        .utm-card {
+            display: flex; align-items: center; justify-content: space-between; gap: 12px;
+            background: linear-gradient(135deg, #e8f0ed, #d5e6df);
+            border: 1px solid #b9d3c8; border-radius: 10px; padding: 10px 16px; margin-bottom: 14px;
+        }
+        .utm-info { display: flex; flex-direction: column; gap: 2px; }
+        .utm-info strong { color: #1b4d3e; font-size: 15px; }
+        .utm-mes { font-size: 13px; color: #444; }
+        .utm-valor { font-weight: 700; color: #1b4d3e; }
+        .utm-mes-actual {
+            font-size: 13px; font-weight: 600; color: #1b4d3e;
+            background: #fff; border: 1px solid #b9d3c8; border-radius: 6px;
+            padding: 8px 12px; white-space: nowrap;
+        }
+        .utm-form { display: flex; align-items: center; gap: 8px; }
+        .utm-nav {
+            display: flex; align-items: center; gap: 8px;
+            background: rgba(255, 255, 255, 0.12); border-radius: 8px;
+            padding: 4px 10px;
+        }
+        .utm-nav strong { color: #d7ece4; font-size: 12px; white-space: nowrap; }
+        .utm-nav .utm-valor { color: #fff; font-weight: 700; font-size: 13px; white-space: nowrap; }
+        .utm-nav form { display: flex; align-items: center; gap: 6px; }
+        .utm-nav input { width: 86px; padding: 4px 6px; border: none; border-radius: 6px; font-size: 13px; }
+        .utm-nav button {
+            padding: 4px 10px; border: none; border-radius: 6px;
+            background: #fff; color: #1b4d3e; font-weight: 700; cursor: pointer; font-size: 13px;
+        }
+        .editar-nota {
+            display: none;
+            background: #34d399; color: #052e16; font-weight: 700;
+            padding: 10px 14px; border-radius: 6px; margin-bottom: 14px; font-size: 14px;
+        }
+        .btn-eliminar-registro {
+            background: #b33939; color: #000; border: none; font-weight: 700;
+        }
+        .btn-eliminar-registro:hover { background: #9b2c2c; }
+        tr.desglose-fila:not(.abierto) { display: none; }
+        .ml-auto { margin-left: auto; }
+        .mt20 { margin-top: 20px; }
+        .toolbar-mt20 { margin-top: 20px; }
+        .toolbar-mb6 { margin-bottom: 6px; }
+        .col-stack { display: flex; flex-direction: column; }
+        .form-columna { display: flex; flex-direction: column; gap: 12px; }
+        .acciones { display: flex; gap: 10px; }
+        .acciones-derecha { display: flex; gap: 10px; margin-top: 12px; justify-content: flex-end; }
+        .h2-seccion { color: #1b4d3e; margin-bottom: 20px; }
+        .h2-seccion.mb6 { margin-bottom: 6px; }
+        .h2-seccion.mb16 { margin-bottom: 16px; }
+        .h2-seccion-menos { color: #1b4d3e; margin-bottom: 12px; }
+        .mb12 { margin-bottom: 12px; }
+        .mb16 { margin-bottom: 16px; }
+        .mt18 { margin-top: 18px; }
+        .mt20 { margin-top: 20px; }
+        .texto-18 { font-size: 18px; }
+        .texto-15 { font-size: 15px; }
+        .texto-derecha { text-align: right; }
+        .h2-peligro { color: #b33939; margin-bottom: 20px; }
+        .h3-generados { color: #1b4d3e; margin-top: 24px; margin-bottom: 10px; }
+        .parrafo-info { margin-bottom: 16px; color: #555; }
+        .parrafo-simple { margin-bottom: 8px; }
+        .subtitulo { color: #666; margin-bottom: 4px; }
+        .nota-fina { font-size: 12px; color: #999; }
+        .nota-term { font-size: 13px; color: #555; }
+        .codigo-term { background: #eef2f0; padding: 2px 6px; border-radius: 4px; }
+        .separador { margin: 20px 0; border: none; border-top: 1px solid #e5ebe8; }
+        .aviso-error { color: #b33939; display: none; }
+        .aviso-ok { color: #1b4d3e; font-weight: 600; display: none; }
+        .card-angosta { max-width: 700px; }
+        .card-chica { max-width: 480px; }
+        .card-ancha { max-width: 720px; }
+        .card-centrada { text-align: center; }
+        .card-scroll { max-height: calc(100vh - 120px); overflow-y: auto; }
+        .login-shell { max-width: 380px; margin: 60px auto; }
+        .btn-mt8 { margin-top: 8px; }
+        .caja-resumen { background: #fdf2f2; padding: 12px; border-radius: 8px; margin-bottom: 20px; font-size: 14px; }
+        .texto-verde { color: #059669; font-weight: 700; }
+        .contador-nuevos { padding: 8px 14px; background: #e8f0ed; border-radius: 8px; font-weight: 700; color: #1b4d3e; white-space: nowrap; }
+        .total-mes-box { margin-left: auto; font-size: 13px; font-weight: 700; color: #1b4d3e; }
+        .total-fila { margin-top: 6px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+        .filtros-fin { align-items: flex-end; }
+        .filtro-campo { display: flex; flex-direction: column; }
+        .filtro-campo .filtro-etiqueta { margin-bottom: 4px; }
+        .filtro-linea { display: flex; align-items: center; gap: 6px; }
+        .filtro-sep { color: #555; }
+        .grid-usuarios { display: grid; grid-template-columns: 1fr 1fr 1.4fr; gap: 20px; align-items: start; }
+        .rol-form { display: flex; gap: 6px; align-items: center; }
+        .rol-select { padding: 4px; }
+        .monto-input { width: 130px; }
+        .desglose-titulo { color: #1b4d3e; font-size: 13px; }
+        .desglose-tabla .dia-nombre-input { width: 90px; }
+        .desglose-tabla .dia-fecha-input { width: 110px; }
+        .desglose-tabla .valor-dia { width: 90px; }
+        .desglose-tabla .folio-dia-input { width: 110px; }
+        #desglose-form .valor-dia { width: 140px; }
+        .valor-dia-wrap { display: flex; align-items: center; }
+        .prefijo-peso { color: #555; margin-right: 4px; font-size: 11px; }
     </style>
 </head>
 <body>
@@ -76,9 +203,29 @@
         <h1>🏬 Vega Los Ángeles</h1>
         <div class="nav-links">
             <span class="usuario">{{ user.username }} · {{ user.perfil.get_rol_display }}</span>
+            {% if user.perfil.rol == 'caja' %}
+            <div class="utm-nav">
+                <strong>UTM {{ utm_mes }}</strong>
+                {% if utm_valor > 0 %}
+                <span class="utm-valor">${{ utm_valor|floatformat:0|intcomma }}</span>
+                {% else %}
+                <span class="utm-valor">Sin asignar</span>
+                {% endif %}
+                <form method="post" action="{% url 'guardar_utm' %}">
+                    {% csrf_token %}
+                    <input type="hidden" name="tipo" value="local">
+                    <input type="hidden" name="mes" value="{{ utm_mes_num }}">
+                    <input type="number" name="valor" step="0.01" min="0.01" value="{{ utm_valor|floatformat:2 }}" placeholder="Valor UTM">
+                    <button type="submit">Guardar</button>
+                </form>
+            </div>
+            {% endif %}
+            {% if user.perfil.rol != 'administrador' %}
             <a href="{% url 'pagos' %}">Pagos</a>
+            <a href="{% url 'reportes' %}">Reportes</a>
             <a href="{% url 'locales_desocupados' %}">Locales Desocupados</a>
             <a href="{% url 'historial' %}">Historial</a>
+            {% endif %}
             {% if user.perfil.rol == 'administrador' %}
             <a href="{% url 'usuarios_admin' %}">Usuarios</a>
             {% endif %}

@@ -4,36 +4,49 @@
 {% block content %}
 <div class="card">
     <div class="toolbar">
-        <form method="get" class="filtros" id="filtros-form">
-            <select name="tipo" onchange="this.form.submit()">
-                <option value="">Todos los tipos</option>
-                {% for valor, nombre in tipos %}
-                <option value="{{ valor }}" {% if valor == tipo_filtro %}selected{% endif %}>{{ nombre }}</option>
-                {% endfor %}
-            </select>
-            <select name="anio" onchange="this.form.submit()">
-                <option value="">Todos</option>
-                {% for año in años_lista %}
-                <option value="{{ año }}" {% if año == anio_filtro %}selected{% endif %}>{{ año }}</option>
-                {% endfor %}
-            </select>
-            <a class="btn btn-primary" href="{% url 'reportes' %}?tipo={{ tipo_filtro }}&anio={{ anio_filtro }}&exportar=1">Descargar Excel</a>
+        <form method="get" class="filtros filtros-fin" id="filtros-form">
+            <div class="filtro-campo">
+                <span class="filtro-etiqueta">Tipo</span>
+                <select name="tipo" onchange="this.form.submit()">
+                    <option value="">Todos los tipos</option>
+                    {% for valor, nombre in tipos %}
+                    <option value="{{ valor }}" {% if valor == tipo_filtro %}selected{% endif %}>{{ nombre }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="filtro-campo">
+                <span class="filtro-etiqueta">Años</span>
+                <div class="filtro-linea">
+                    <select name="anio_desde" onchange="this.form.submit()">
+                        <option value="">Todos</option>
+                        {% for año in años_lista %}
+                        <option value="{{ año }}" {% if año|stringformat:"s" == anio_desde %}selected{% endif %}>{{ año }}</option>
+                        {% endfor %}
+                    </select>
+                    <span class="filtro-sep">a</span>
+                    <select name="anio_hasta" onchange="this.form.submit()">
+                        <option value="">Todos</option>
+                        {% for año in años_lista %}
+                        <option value="{{ año }}" {% if año|stringformat:"s" == anio_hasta %}selected{% endif %}>{{ año }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            <div class="filtro-campo">
+                <span class="filtro-etiqueta">Mes desde</span>
+                <input type="text" name="mes_desde" value="{{ mes_desde }}" placeholder="Inicio" class="filtro-input" list="sug-meses" autocomplete="off">
+            </div>
+            <div class="filtro-campo">
+                <span class="filtro-etiqueta">Mes hasta</span>
+                <input type="text" name="mes_hasta" value="{{ mes_hasta }}" placeholder="Fin" class="filtro-input" list="sug-meses" autocomplete="off">
+            </div>
+            <button class="btn btn-primary" type="submit">Filtrar</button>
+            <a class="btn btn-outline" href="{% url 'reportes' %}">Limpiar</a>
+            <a class="btn btn-primary" href="{% url 'reportes' %}?tipo={{ tipo_filtro }}&anio_desde={{ anio_desde }}&anio_hasta={{ anio_hasta }}&mes_desde={{ mes_desde }}&mes_hasta={{ mes_hasta }}&exportar=1">Descargar Excel</a>
+            <datalist id="sug-meses">
+                {% for mes in meses_lista %}<option value="{{ mes }}"></option>{% endfor %}
+            </datalist>
         </form>
-    </div>
-
-    <div style="display: flex; gap: 16px; margin-bottom: 20px; flex-wrap: wrap;">
-        <div style="background:#e8f0ed; padding:14px 20px; border-radius:8px; flex:1; min-width:150px;">
-            <div style="font-size:12px; color:#1b4d3e;">Total recaudado</div>
-            <div style="font-size:22px; font-weight:700; color:#14532d;">${{ total_general|floatformat:0 }}</div>
-        </div>
-        <div style="background:#fdf2f2; padding:14px 20px; border-radius:8px; flex:1; min-width:150px;">
-            <div style="font-size:12px; color:#7f1d1d;">Total pendiente</div>
-            <div style="font-size:22px; font-weight:700; color:#b33939;">${{ total_pendiente|floatformat:0 }}</div>
-        </div>
-        <div style="background:#f0f4f6; padding:14px 20px; border-radius:8px; flex:1; min-width:150px;">
-            <div style="font-size:12px; color:#333;">Registros</div>
-            <div style="font-size:22px; font-weight:700; color:#333;">{{ cantidad }}</div>
-        </div>
     </div>
 
     <table>

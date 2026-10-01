@@ -2,7 +2,7 @@
 {% block title %}Locales Desocupados - Vega Los Ángeles{% endblock %}
 {% block content %}
 <div class="card">
-    <h2 style="color: #1b4d3e; margin-bottom: 20px;">Locales Desocupados</h2>
+    <h2 class="h2-seccion">Locales Desocupados</h2>
     {% if desocupados %}
     <table>
         <thead>
@@ -23,7 +23,7 @@
     {% else %}
     <p class="vacio">No hay locales desocupados.</p>
     {% endif %}
-    <div style="margin-top: 20px;">
+    <div class="mt20">
         <a class="btn btn-outline" href="{% url 'pagos' %}">Volver a pagos</a>
     </div>
 </div>

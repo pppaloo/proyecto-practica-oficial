@@ -3,7 +3,7 @@
 {% block title %}Historial - Vega Los Ángeles{% endblock %}
 {% block content %}
 <div class="card">
-    <h2 style="color: #1b4d3e; margin-bottom: 20px;">Historial de operaciones</h2>
+    <h2 class="h2-seccion">Historial de operaciones e ingresos</h2>
     {% if registros %}
     <table>
         <thead>
@@ -18,13 +18,13 @@
         </thead>
         <tbody>
             {% for r in registros %}
-            <tr>
+            <tr class="reg-{{ r.tipo }}">
                 <td>{{ r.fecha_hora|date:"d/m/Y H:i" }}</td>
-                <td>{{ r.usuario.username }}</td>
-                <td>{{ r.get_accion_display }}</td>
-                <td>{{ r.local_numero }}</td>
+                <td>{{ r.usuario }}</td>
+                <td>{{ r.accion }}</td>
+                <td>{{ r.local }}</td>
                 <td>{{ r.folio }}</td>
-                <td>${{ r.monto|floatformat:0|intcomma }}</td>
+                <td>{% if r.monto is not None %}${{ r.monto|floatformat:0|intcomma }}{% else %}—{% endif %}</td>
             </tr>
             {% endfor %}
         </tbody>

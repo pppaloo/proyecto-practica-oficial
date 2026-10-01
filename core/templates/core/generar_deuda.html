@@ -3,8 +3,8 @@
 {% block title %}Generar deuda del mes - Vega Los Ángeles{% endblock %}
 {% block content %}
 <div class="card">
-    <h2 style="color: #1b4d3e; margin-bottom: 12px;">Generar deuda del mes {{ periodo }}</h2>
-    <p style="margin-bottom: 16px; color: #555;">
+    <h2 class="h2-seccion-menos">Generar deuda del mes {{ periodo }}</h2>
+    <p class="parrafo-info">
         Se creará un registro de deuda por cada local ocupado hasta el fin de mes.
         El monto se precarga con el mayor registro anterior de cada local: ajústalo si es necesario.
         Si dejas un monto vacío o en 0, ese local se omite.
@@ -32,7 +32,7 @@
                     <td>{{ fila.ultimo.empresario|default:"—" }}</td>
                     <td>{{ fila.ultimo.rut|default:"—" }}</td>
                     <td>{{ fila.fecha_aplicada|date:"d/m/Y" }}</td>
-                    <td><input type="number" name="valor_{{ fila.local.id }}" step="0.01" min="0" value="{{ fila.referencia|stringformat:"s" }}" style="width: 130px;"></td>
+                    <td><input type="number" name="valor_{{ fila.local.id }}" step="0.01" min="0" value="{{ fila.referencia|stringformat:"s" }}" class="monto-input"></td>
                     <td><small>{{ fila.folio }}</small></td>
                 </tr>
                 {% empty %}
@@ -42,18 +42,18 @@
         </table>
 
         {% if pendientes %}
-        <div class="toolbar" style="margin-top: 20px;">
-            <p style="font-size: 15px; font-weight: 600; color: #1b4d3e;">
+        <div class="toolbar toolbar-mt20">
+            <p class="total-mes-box texto-15">
                 Total precargado: ${{ total_a_generar|floatformat:0|intcomma }}
             </p>
-            <button class="btn btn-primary" type="submit" style="margin-left: auto;">Generar deuda</button>
+            <button class="btn btn-primary" type="submit">Generar deuda</button>
             <a class="btn btn-outline" href="{% url 'pagos' %}">Cancelar</a>
         </div>
         {% endif %}
     </form>
 
     {% if ya_generados %}
-    <h3 style="color: #1b4d3e; margin-top: 24px; margin-bottom: 10px;">Ya generados este mes</h3>
+    <h3 class="h3-generados">Ya generados este mes</h3>
     <table>
         <thead>
             <tr>

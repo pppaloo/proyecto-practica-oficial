@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.db import models
 from django.contrib.auth.models import User
 
@@ -36,6 +38,7 @@ class Perfil(models.Model):
 class Local(models.Model):
     numero = models.CharField(max_length=10, unique=True)
     tipo = models.CharField(max_length=20, choices=TIPOS_LOCAL)
+    cantidad_utm = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("1"))
     ocupado = models.BooleanField(default=True)
 
     def __str__(self):
@@ -49,12 +52,44 @@ class Pago(models.Model):
     empresario = models.CharField(max_length=150, blank=True)
     rut = models.CharField(max_length=15, blank=True)
     descripcion = models.CharField(max_length=255, blank=True)
+    tipo_deuda = models.CharField(max_length=100, blank=True)
+    domicilio = models.CharField(max_length=200, blank=True)
+    fono = models.CharField(max_length=30, blank=True)
+    correo = models.CharField(max_length=150, blank=True)
+    periodo = models.CharField(max_length=50, blank=True)
     valor = models.DecimalField(max_digits=10, decimal_places=2)
     fecha_pago = models.DateField(null=True, blank=True)
     folio = models.CharField(max_length=30, unique=True)
 
     def __str__(self):
         return f"{self.local.numero} - {self.folio}"
+
+
+class PagoDiario(models.Model):
+    pago = models.ForeignKey(Pago, on_delete=models.CASCADE, related_name="detalles_diarios")
+    fecha = models.DateField()
+    dia = models.CharField(max_length=15, blank=True)
+    valor = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0"))
+    folio = models.CharField(max_length=30, null=True, blank=True, unique=True)
+
+    class Meta:
+        ordering = ["fecha"]
+
+    def __str__(self):
+        return f"{self.pago.folio} {self.fecha} - {self.valor}"
+
+
+class ValorUTM(models.Model):
+    anio = models.IntegerField()
+    mes = models.IntegerField()
+    valor = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0"))
+    asignado = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("anio", "mes")
+
+    def __str__(self):
+        return f"UTM {self.mes}/{self.anio} = {self.valor}"
 
 
 class Historial(models.Model):

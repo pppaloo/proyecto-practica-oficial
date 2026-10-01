@@ -1,9 +1,9 @@
 {% extends "core/base.html" %}
 {% block title %}Editar registro - Vega Los Ángeles{% endblock %}
 {% block content %}
-<div class="card" style="max-width: 700px;">
-    <h2 style="color: #1b4d3e; margin-bottom: 20px;">Editar registro</h2>
-    <p style="margin-bottom: 16px; color: #555;">
+<div class="card card-angosta">
+    <h2 class="h2-seccion">Editar registro</h2>
+    <p class="parrafo-info">
         Local: <strong>{{ pago.local.numero }}</strong> · Folio: <strong>{{ pago.folio }}</strong>
         {% if restringido %}
         · <span class="mensual">No paga domingos ni feriados</span>
@@ -15,7 +15,7 @@
             <div class="form-group">
                 <label>Fecha *</label>
                 <input type="date" id="id_fecha" name="fecha" required value="{{ pago.fecha|date:'Y-m-d' }}">
-                <small id="id_fecha_aviso" style="color:#b33939; display:none;"></small>
+                <small id="id_fecha_aviso" class="aviso-error"></small>
             </div>
             <input type="hidden" id="id_mes" name="mes" value="{{ pago.mes }}">
             <div class="form-group">
@@ -39,7 +39,7 @@
                 <input type="date" name="fecha_pago" value="{{ pago.fecha_pago|date:'Y-m-d' }}">
             </div>
         </div>
-        <div style="margin-top: 20px; display: flex; gap: 10px;">
+        <div class="acciones mt20">
             <button class="btn btn-primary" type="submit">Guardar cambios</button>
             <a class="btn btn-outline" href="{% url 'pagos_tipo' tipo %}">Cancelar</a>
         </div>

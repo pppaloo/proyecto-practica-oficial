@@ -11,28 +11,50 @@
 <div class="card">
     <div class="toolbar">
         <form method="get" class="filtros" id="filtros-form">
-            <input type="text" name="numero" value="{{ numero_filtro }}" placeholder="N° local" class="filtro-input">
-            <select name="mes" class="filtro-input" onchange="this.form.submit()">
-                <option value="">Todos</option>
-                {% for mes in meses_lista %}
-                <option value="{{ mes }}" {% if mes == mes_filtro %}selected{% endif %}>{{ mes }}</option>
-                {% endfor %}
-            </select>
-            <select name="anio" class="filtro-input" onchange="this.form.submit()">
-                <option value="">Todos</option>
-                {% for año in años_lista %}
-                <option value="{{ año }}" {% if año == anio_filtro %}selected{% endif %}>{{ año }}</option>
-                {% endfor %}
-            </select>
-            <input type="text" name="folio" value="{{ folio_filtro }}" placeholder="Folio" class="filtro-input">
-            <input type="text" name="empresario" value="{{ empresario_filtro }}" placeholder="Empresario" class="filtro-input">
+            <input type="text" name="numero" value="{{ numero_filtro }}" placeholder="N° local" class="filtro-input" list="sug-numero" autocomplete="off">
+            <input type="text" name="folio" value="{{ folio_filtro }}" placeholder="Folio" class="filtro-input" list="sug-folio" autocomplete="off">
+            <input type="text" name="empresario" value="{{ empresario_filtro }}" placeholder="Empresario" class="filtro-input" list="sug-empresario" autocomplete="off">
+            <span class="filtro-rango">
+                <span class="filtro-etiqueta">Mes:</span> desde
+                <input type="text" name="mes_desde" value="{{ mes_desde }}" placeholder="Desde" class="filtro-input" list="sug-meses" autocomplete="off">
+                hasta
+                <input type="text" name="mes_hasta" value="{{ mes_hasta }}" placeholder="Hasta" class="filtro-input" list="sug-meses" autocomplete="off">
+            </span>
+            <span class="filtro-rango">
+                <span class="filtro-etiqueta">Año:</span> desde
+                <input type="text" name="anio_desde" value="{{ anio_desde }}" placeholder="Desde" class="filtro-input" list="sug-anios" autocomplete="off">
+                hasta
+                <input type="text" name="anio_hasta" value="{{ anio_hasta }}" placeholder="Hasta" class="filtro-input" list="sug-anios" autocomplete="off">
+            </span>
             <button class="btn btn-primary" type="submit">Buscar</button>
-            {% if numero_filtro or mes_filtro or anio_filtro or folio_filtro or empresario_filtro %}
+            {% if numero_filtro or mes_desde or mes_hasta or anio_desde or anio_hasta or folio_filtro or empresario_filtro %}
             <a class="btn btn-outline" href="{% url 'pagos_tipo' tipo_actual %}">Limpiar</a>
             {% endif %}
+            <datalist id="sug-numero">
+                {% for n in numeros_sugeridos %}<option value="{{ n }}"></option>{% endfor %}
+            </datalist>
+            <datalist id="sug-folio">
+                {% for f in folios_sugeridos %}<option value="{{ f }}"></option>{% endfor %}
+            </datalist>
+            <datalist id="sug-empresario">
+                {% for e in empresarios_sugeridos %}<option value="{{ e }}"></option>{% endfor %}
+            </datalist>
+            <datalist id="sug-meses">
+                {% for mes in meses_lista %}<option value="{{ mes }}"></option>{% endfor %}
+            </datalist>
+            <datalist id="sug-anios">
+                {% for año in años_lista %}<option value="{{ año }}"></option>{% endfor %}
+            </datalist>
         </form>
+        <div class="col-stack">
+            <span class="filtro-etiqueta">Empresarios nuevos del mes</span>
+            <div class="contador-nuevos">
+                {{ empresarios_nuevos }} · {{ mes_nuevos }} {{ anio_nuevos }}
+            </div>
+        </div>
         {% if es_caja %}
-        <a class="btn btn-primary" href="{% url 'agregar_pago' tipo_actual %}" style="margin-left: auto;">+ Agregar</a>
+        <a class="btn btn-primary ml-auto" href="{% url 'agregar_pago' tipo_actual %}">+ Agregar</a>
+        <a class="btn btn-outline" href="{% url 'importar_excel_pagos' %}">Importar Excel</a>
         {% endif %}
         <a class="btn btn-outline" href="{% url 'reportes' %}">Reportes</a>
         {% if generacion_disponible %}
@@ -40,135 +62,455 @@
         {% endif %}
     </div>
 
-    <p style="font-size: 13px; color: #555; margin-bottom: 12px;">
-        Selecciona las casillas de los registros para sumarlos al tiro (solo de la misma persona).
+    <p class="nota-term mb12">
+        {% if es_caja %}
+        Haz clic en <strong>Editar</strong> para modificar cada celda directamente en la tabla. Un <span class="texto-verde">borde verde</span> marca la fila en edición (junto a sus días desglosados). Confirma o cancela para terminar.
+        {% else %}
+        Los registros muestran los pagos por local. Tu perfil es de consulta.
+        {% endif %}
     </p>
 
-    <div id="seleccion-resumen" class="seleccion-resumen" style="display: none;">
-        <span id="seleccion-texto"></span>
-        <button type="button" id="limpiar-seleccion" class="btn btn-outline btn-limpiar">Limpiar selección</button>
-    </div>
-    <p id="seleccion-aviso" class="seleccion-aviso" style="display: none;">
-        Solo puedes seleccionar registros de la misma persona.
-    </p>
+    <div id="editar-nota" class="editar-nota">Cambios guardados correctamente.</div>
 
-    <table>
+    <table id="tabla-pagos">
         <thead>
             <tr>
-                <th class="check-col" title="Seleccionar"></th>
                 <th>N° Local</th>
-                <th>Fecha</th>
                 <th>Mes</th>
                 <th>Empresario</th>
                 <th>RUT</th>
                 <th>Descripción</th>
                 <th>Valor</th>
                 <th>Fecha Pago</th>
-                <th>Folio</th>
+                <th>Tipo Deuda</th>
+                <th>Domicilio</th>
+                <th>Fono</th>
+                <th>Correo</th>
+                <th>Periodo</th>
                 {% if es_caja %}<th>Acciones</th>{% endif %}
             </tr>
         </thead>
-        <tbody>
-            {% for pago in pagos %}
-            <tr data-folio="{{ pago.folio }}"
-                data-valor="{{ pago.valor }}"
-                data-rut="{{ pago.rut }}"
-                data-empresario="{{ pago.empresario }}">
-                <td class="check-col"><input type="checkbox" class="check-pago"></td>
-                <td>{{ pago.local.numero }}</td>
-                <td>{{ pago.fecha|date:"d/m/Y" }}</td>
-                <td>{{ pago.mes }}</td>
-                <td>{{ pago.empresario }}</td>
-                <td>{{ pago.rut }}</td>
-                <td>{{ pago.descripcion }}</td>
-                <td>${{ pago.valor|floatformat:0|intcomma }}</td>
-                <td>{{ pago.fecha_pago|date:"d/m/Y"|default:"—" }}</td>
-                <td>{{ pago.folio }}</td>
+        {% for pago in pagos %}
+        <tbody class="pago-grupo" data-folio="{{ pago.folio }}" data-fecha="{{ pago.fecha|date:"Y-m-d" }}">
+            <tr class="pago-fila">
+                <td data-campo="numero" data-raw="{{ pago.local.numero }}">{{ pago.local.numero }}</td>
+                <td data-campo="mes" data-raw="{{ pago.mes }}">{{ pago.mes }}</td>
+                <td data-campo="empresario" data-raw="{{ pago.empresario }}">{{ pago.empresario }}</td>
+                <td data-campo="rut" data-raw="{{ pago.rut }}">{{ pago.rut }}</td>
+                <td data-campo="descripcion" data-raw="{{ pago.descripcion }}">{{ pago.descripcion }}</td>
+                <td data-campo="valor" data-raw="{{ pago.valor }}">${{ pago.valor|floatformat:0|intcomma }}</td>
+                <td data-campo="fecha_pago" data-raw="{{ pago.fecha_pago|date:"Y-m-d" }}">{{ pago.fecha_pago|date:"d/m/Y"|default:"—" }}</td>
+                <td data-campo="tipo_deuda" data-raw="{{ pago.tipo_deuda }}">{{ pago.tipo_deuda }}</td>
+                <td data-campo="domicilio" data-raw="{{ pago.domicilio }}">{{ pago.domicilio }}</td>
+                <td data-campo="fono" data-raw="{{ pago.fono }}">{{ pago.fono }}</td>
+                <td data-campo="correo" data-raw="{{ pago.correo }}">{{ pago.correo }}</td>
+                <td data-campo="periodo" data-raw="{{ pago.periodo }}">{{ pago.periodo }}</td>
                 {% if es_caja %}
                 <td>
-                    <a class="btn btn-outline btn-abonar" href="{% url 'abonar_pago' tipo_actual pago.folio %}">Abonar</a>
-                    <a class="btn btn-outline btn-abonar" href="{% url 'editar_pago' tipo_actual pago.folio %}">Editar</a>
-                    <a class="btn btn-outline btn-abonar" style="color:#b33939;border-color:#b33939;" href="{% url 'eliminar_pago' tipo_actual pago.folio %}">Eliminar</a>
+                    <button type="button" class="btn btn-outline btn-editar" data-grupo="{{ pago.folio }}">Editar</button>
                 </td>
                 {% endif %}
             </tr>
-            {% empty %}
-            <tr><td colspan="{% if es_caja %}11{% else %}10{% endif %}" class="vacio">No hay pagos registrados{% if numero_filtro %} para ese número{% endif %}.</td></tr>
-            {% endfor %}
+            {% if es_caja %}
+            <tr class="desglose-fila">
+                <td colspan="13">
+                    <div class="desglose-contenedor">
+                        <div class="toolbar toolbar-mb6">
+                            <strong class="desglose-titulo">Desglose por día — {{ pago.mes }} {{ pago.fecha|date:"Y" }}</strong>
+                            <button type="button" class="btn btn-eliminar-registro ml-auto">Eliminar registro</button>
+                            <button type="button" class="btn btn-primary btn-confirmar">Confirmar</button>
+                            <button type="button" class="btn btn-outline btn-cerrar">Cancelar</button>
+                        </div>
+                        <table class="desglose-tabla">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Día</th>
+                                    <th>Fecha</th>
+                                    <th>Valor por día ($)</th>
+                                    <th>Folio</th>
+                                </tr>
+                            </thead>
+                            <tbody class="desglose-tbody">
+                                {% for fila in pago.desglose %}
+                                <tr class="desglose-fila-dia">
+                                    <td class="num-dia">{{ fila.dia_num }}</td>
+                                    <td><input type="text" name="dia_{{ forloop.counter0 }}" class="dia-nombre-input" value="{{ fila.dia_nombre }}" placeholder="Ej: Miércoles"></td>
+                                    <td><input type="date" name="dia_fecha_{{ forloop.counter0 }}" class="dia-fecha-input" value="{{ fila.fecha }}"></td>
+                                    <td><div class="valor-dia-wrap"><span class="prefijo-peso">$</span><input type="text" inputmode="decimal" name="valor_{{ forloop.counter0 }}" class="valor-dia" data-raw="{{ fila.valor|floatformat:-2 }}" value="{{ fila.valor|floatformat:-2 }}" placeholder="0"></div></td>
+                                    <td><input type="text" name="folio_{{ forloop.counter0 }}" class="folio-dia-input" value="{{ fila.folio }}" placeholder="Folio"></td>
+                                </tr>
+                                {% empty %}
+                                <tr class="desglose-vacio"><td colspan="5" class="vacio">Aún no hay días para este mes.</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                        <div class="total-fila">
+                            <div class="total-mes-box">
+                                Total: <span class="total-mes">${{ pago.desglose_total|floatformat:0|intcomma }}</span>
+                            </div>
+                        </div>
+                    </div>
+                </td>
+            </tr>
+            {% endif %}
         </tbody>
+        {% empty %}
+        <tbody>
+            <tr><td colspan="{% if es_caja %}13{% else %}12{% endif %}" class="vacio">No hay pagos registrados{% if numero_filtro %} para ese número{% endif %}.</td></tr>
+        </tbody>
+        {% endfor %}
     </table>
 </div>
 
 <script>
 (function () {
-    var filas = Array.prototype.slice.call(document.querySelectorAll("tr[data-folio]"));
-    if (!filas.length) return;
-
-    var resumen = document.getElementById("seleccion-resumen");
-    var texto = document.getElementById("seleccion-texto");
-    var aviso = document.getElementById("seleccion-aviso");
-    var botonLimpiar = document.getElementById("limpiar-seleccion");
-
-    function clavePersona(fila) {
-        var rut = (fila.getAttribute("data-rut") || "").trim().toLowerCase();
-        var empresario = (fila.getAttribute("data-empresario") || "").trim().toLowerCase();
-        return rut || empresario;
+    function getCsrf() {
+        var cookie = document.cookie.split("; ").find(function (c) { return c.indexOf("csrftoken=") === 0; });
+        return cookie ? cookie.split("=")[1] : "";
     }
 
-    function formatearMonto(n) {
-        return "$" + n.toLocaleString("es-CL", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+    function formatear(n) {
+        return "$" + n.toLocaleString("es-CL", { maximumFractionDigits: 0 });
     }
 
-    function actualizar() {
-        var cantidad = 0;
-        var total = 0;
-        filas.forEach(function (fila) {
-            var check = fila.querySelector(".check-pago");
-            fila.classList.toggle("fila-seleccionada", check.checked);
-            if (check.checked) {
-                cantidad += 1;
-                total += parseFloat(fila.getAttribute("data-valor")) || 0;
+    function enviar(folio, accion, data, tr, recalcular) {
+        var url = "{% url 'abonar_pago' tipo_actual 'FOLIO' %}".replace("FOLIO", folio);
+        var body = new URLSearchParams();
+        Object.keys(data).forEach(function (k) { body.append(k, data[k]); });
+        body.append("accion", accion);
+        fetch(url, {
+            method: "POST",
+            headers: { "X-CSRFToken": getCsrf() },
+            body: body,
+            credentials: "same-origin"
+        }).then(function (r) { return r.json(); }).then(function (res) {
+            if (res.ok) {
+                if (tr) tr.setAttribute("data-guardado", "1");
+                if (recalcular) recalcular();
+            } else {
+                if (tr) tr.setAttribute("data-error", res.error || "Error");
             }
+        }).catch(function () {});
+    }
+
+    function totalDeForm(filaDesglose) {
+        var total = 0;
+        Array.prototype.slice.call(filaDesglose.querySelectorAll(".valor-dia")).forEach(function (input) {
+            total += parsearCLP(input.value) || 0;
         });
-        if (cantidad > 0) {
-            texto.textContent = "Seleccionados: " + cantidad + " · Total: " + formatearMonto(total);
-            resumen.style.display = "flex";
+        return total;
+    }
+
+    function parsearCLP(str) {
+        if (!str) return 0;
+        var limpio = str.replace(/[^\d.,-]/g, "");
+        if (!limpio) return 0;
+        var negativo = limpio.indexOf("-") === 0;
+        limpio = limpio.replace("-", "");
+        limpio = limpio.replace(/\./g, "").replace(",", ".");
+        var n = parseFloat(limpio);
+        return negativo ? -n : n;
+    }
+
+    function formatearCLP(n) {
+        var v = Math.round(n * 100) / 100;
+        var texto = v.toLocaleString("es-CL", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        return texto;
+    }
+
+    var NOMBRES_DIAS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
+
+    function actualizarDesdeFecha(trNueva) {
+        var fechaInput = trNueva.querySelector(".dia-fecha-input");
+        var nombreInput = trNueva.querySelector(".dia-nombre-input");
+        var numEl = trNueva.querySelector(".num-dia");
+        var val = fechaInput.value;
+        if (val) {
+            var partes = val.split("-");
+            var fecha = new Date(parseInt(partes[0], 10), parseInt(partes[1], 10) - 1, parseInt(partes[2], 10));
+            nombreInput.value = NOMBRES_DIAS[fecha.getDay() === 0 ? 6 : fecha.getDay() - 1];
+            numEl.textContent = parseInt(partes[2], 10);
         } else {
-            resumen.style.display = "none";
+            nombreInput.value = "";
+            numEl.textContent = "";
         }
     }
 
-    filas.forEach(function (fila) {
-        var check = fila.querySelector(".check-pago");
-        check.addEventListener("change", function () {
-            if (!check.checked) {
-                aviso.style.display = "none";
-                actualizar();
-                return;
+    function bindFila(trNueva, tbody, recalcular) {
+        var datos = {
+            diaNombre: trNueva.querySelector(".dia-nombre-input"),
+            diaFecha: trNueva.querySelector(".dia-fecha-input"),
+            valor: trNueva.querySelector(".valor-dia"),
+            folio: trNueva.querySelector(".folio-dia-input")
+        };
+        var timer = null;
+
+        function folioActual() {
+            var grupo = trNueva.closest("tbody.pago-grupo");
+            return grupo ? grupo.getAttribute("data-folio") : "";
+        }
+
+        function guardar() {
+            clearTimeout(timer);
+            var diaFecha = datos.diaFecha.value;
+            var valor = parsearCLP(datos.valor.value);
+            if (diaFecha !== "") {
+                enviar(folioActual(), "guardar", {
+                    dia_fecha: diaFecha,
+                    dia_nombre: datos.diaNombre.value,
+                    valor: valor,
+                    folio: datos.folio.value
+                }, trNueva, recalcular);
             }
-            var claves = {};
-            filas.forEach(function (f) {
-                if (f.querySelector(".check-pago").checked) {
-                    claves[clavePersona(f)] = true;
-                }
+        }
+
+        Object.keys(datos).forEach(function (k) {
+            datos[k].addEventListener("input", function () {
+                if (recalcular) recalcular();
+                clearTimeout(timer);
+                timer = setTimeout(guardar, 600);
             });
-            if (Object.keys(claves).length > 1) {
-                check.checked = false;
-                aviso.style.display = "block";
+        });
+
+        datos.diaFecha.addEventListener("input", function () {
+            actualizarDesdeFecha(trNueva);
+        });
+    }
+
+    function initDesglose(desgloseFila) {
+        if (desgloseFila.getAttribute("data-iniciado") === "1") return;
+        desgloseFila.setAttribute("data-iniciado", "1");
+
+        var tbody = desgloseFila.querySelector(".desglose-tbody");
+        var totalEl = desgloseFila.querySelector(".total-mes");
+
+        function recalcular() {
+            totalEl.textContent = formatear(totalDeForm(desgloseFila));
+        }
+
+        Array.prototype.slice.call(tbody.querySelectorAll(".desglose-fila-dia")).forEach(function (tr) {
+            bindFila(tr, tbody, recalcular);
+        });
+
+        Array.prototype.slice.call(tbody.querySelectorAll(".valor-dia")).forEach(function (inp) {
+            var n = parsearCLP(inp.value);
+            if (n || n === 0) inp.value = formatearCLP(n);
+        });
+
+        recalcular();
+    }
+
+    function grupoDe(folio) {
+        return document.querySelector('tbody.pago-grupo[data-folio="' + folio + '"]');
+    }
+
+    function repartirValorGrupo(grupo) {
+        var der = grupo.querySelector(".desglose-fila");
+        if (der && der.getAttribute("data-iniciado") === "1") {
+            var tbody = der.querySelector(".desglose-tbody");
+            var valorInput = grupo.querySelector('.campo-input[data-campo="valor"]');
+            if (!valorInput) return;
+            var valor = parseFloat(valorInput.value);
+            var inputs = Array.prototype.slice.call(tbody.querySelectorAll(".valor-dia"));
+            if (!(valor > 0) || !inputs.length) return;
+            var totalCentavos = Math.round(valor * 100);
+            var base = Math.floor(totalCentavos / inputs.length);
+            var resto = totalCentavos % inputs.length;
+            inputs.forEach(function (inp, i) {
+                inp.value = formatearCLP((base + (i < resto ? 1 : 0)) / 100);
+            });
+            var totalEl = der.querySelector(".total-mes");
+            if (totalEl) totalEl.textContent = formatear(totalDeForm(der));
+        }
+    }
+
+    function entrarEdicion(grupo) {
+        grupo.querySelectorAll("td[data-campo]").forEach(function (td) {
+            if (td._edit) return;
+            var campo = td.getAttribute("data-campo");
+            var raw = td.getAttribute("data-raw") || "";
+            var input = document.createElement("input");
+            input.className = "campo-input";
+            input.setAttribute("data-campo", campo);
+            if (campo === "fecha" || campo === "fecha_pago") {
+                input.type = "date";
+                input.value = raw;
+            } else if (campo === "valor") {
+                input.type = "number";
+                input.step = "0.01";
+                input.min = "0";
+                input.value = raw;
+                input.addEventListener("input", function () {
+                    repartirValorGrupo(grupo);
+                });
             } else {
-                aviso.style.display = "none";
+                input.type = "text";
+                input.value = raw;
             }
-            actualizar();
+            td._edit = true;
+            td._original = td.innerHTML;
+            td.innerHTML = "";
+            td.appendChild(input);
+        });
+    }
+
+    function salirEdicion(grupo, restaurar) {
+        grupo.querySelectorAll("td[data-campo]").forEach(function (td) {
+            if (!td._edit) return;
+            if (restaurar && td._original !== undefined) {
+                td.innerHTML = td._original;
+            }
+            delete td._edit;
+            delete td._original;
+        });
+    }
+
+    function cerrarGrupo(grupo) {
+        var folio = grupo.getAttribute("data-folio");
+        var der = grupo.querySelector(".desglose-fila");
+        if (der) der.classList.remove("abierto");
+        grupo.classList.remove("edicion");
+        var eb = document.querySelector('.btn-editar[data-grupo="' + folio + '"]');
+        if (eb) eb.classList.remove("activo");
+    }
+
+    function aplicarRespuesta(grupo, res) {
+        grupo.querySelectorAll("td[data-campo]").forEach(function (td) {
+            var campo = td.getAttribute("data-campo");
+            if (!(campo in res)) return;
+            var valor = res[campo];
+            var raw = res[campo + "_raw"] !== undefined ? res[campo + "_raw"] : valor;
+            td.setAttribute("data-raw", raw);
+            if (campo === "valor") {
+                td.innerHTML = "$" + valor;
+            } else if (campo === "fecha" || campo === "fecha_pago") {
+                td.innerHTML = valor || "—";
+            } else {
+                td.innerHTML = valor;
+            }
+            delete td._edit;
+            delete td._original;
+        });
+        grupo.setAttribute("data-folio", res.folio);
+        if (res.fecha_raw) grupo.setAttribute("data-fecha", res.fecha_raw);
+    }
+
+    function nota(texto) {
+        var n = document.getElementById("editar-nota");
+        if (!n) return;
+        n.textContent = texto;
+        n.style.display = "block";
+        clearTimeout(n._timer);
+        n._timer = setTimeout(function () { n.style.display = "none"; }, 3500);
+    }
+
+    var confirmar = document.querySelectorAll(".btn-confirmar");
+    Array.prototype.slice.call(confirmar).forEach(function (btn) {
+        btn.addEventListener("click", function () {
+            var grupo = btn.closest("tbody.pago-grupo");
+            if (!grupo) return;
+            var folio = grupo.getAttribute("data-folio");
+            var body = new URLSearchParams();
+            grupo.querySelectorAll("td[data-campo] .campo-input").forEach(function (inp) {
+                body.append(inp.getAttribute("data-campo"), inp.value);
+            });
+            if (!body.has("fecha")) body.append("fecha", grupo.getAttribute("data-fecha") || "");
+            if (!body.has("folio")) body.append("folio", grupo.getAttribute("data-folio") || "");
+            body.append("formato", "json");
+            var url = "{% url 'editar_pago' tipo_actual 'FOLIO' %}".replace("FOLIO", folio);
+            btn.disabled = true;
+            btn.textContent = "Guardando...";
+            fetch(url, {
+                method: "POST",
+                headers: { "X-CSRFToken": getCsrf() },
+                body: body,
+                credentials: "same-origin"
+            }).then(function (r) { return r.json(); }).then(function (res) {
+                btn.disabled = false;
+                btn.textContent = "Confirmar";
+                if (!res.ok) {
+                    nota(res.error || "No se pudo guardar.");
+                    return;
+                }
+                aplicarRespuesta(grupo, res);
+                cerrarGrupo(grupo);
+                nota("Cambios guardados correctamente.");
+            }).catch(function () {
+                btn.disabled = false;
+                btn.textContent = "Confirmar";
+                nota("Error de conexión al guardar.");
+            });
         });
     });
 
-    botonLimpiar.addEventListener("click", function () {
-        filas.forEach(function (fila) {
-            fila.querySelector(".check-pago").checked = false;
-            fila.classList.remove("fila-seleccionada");
+    Array.prototype.slice.call(document.querySelectorAll(".btn-cerrar")).forEach(function (btn) {
+        btn.addEventListener("click", function () {
+            var grupo = btn.closest("tbody.pago-grupo");
+            if (!grupo) return;
+            var folio = grupo.getAttribute("data-folio");
+            salirEdicion(grupo, true);
+            cerrarGrupo(grupo);
+            var eb = document.querySelector('.btn-editar[data-grupo="' + folio + '"]');
+            if (eb) eb.classList.remove("activo");
         });
-        aviso.style.display = "none";
-        actualizar();
+    });
+
+    Array.prototype.slice.call(document.querySelectorAll(".btn-eliminar-registro")).forEach(function (btn) {
+        btn.addEventListener("click", function () {
+            var grupo = btn.closest("tbody.pago-grupo");
+            if (!grupo) return;
+            var folio = grupo.getAttribute("data-folio");
+            if (!window.confirm("¿Eliminar este registro y su desglose? Esta acción no se puede deshacer.")) return;
+            var url = "{% url 'eliminar_pago' tipo_actual 'FOLIO' %}".replace("FOLIO", folio);
+            var body = new URLSearchParams();
+            body.append("formato", "json");
+            btn.disabled = true;
+            btn.textContent = "Eliminando...";
+            fetch(url, {
+                method: "POST",
+                headers: { "X-CSRFToken": getCsrf() },
+                body: body,
+                credentials: "same-origin"
+            }).then(function (r) { return r.json(); }).then(function (res) {
+                if (!res.ok) {
+                    btn.disabled = false;
+                    btn.textContent = "Eliminar registro";
+                    nota(res.error || "No se pudo eliminar.");
+                    return;
+                }
+                grupo.parentNode.removeChild(grupo);
+                nota("Registro eliminado correctamente.");
+            }).catch(function () {
+                btn.disabled = false;
+                btn.textContent = "Eliminar registro";
+                nota("Error de conexión al eliminar.");
+            });
+        });
+    });
+
+    Array.prototype.slice.call(document.querySelectorAll(".btn-editar")).forEach(function (btn) {
+        btn.addEventListener("click", function () {
+            var folio = btn.getAttribute("data-grupo");
+            var grupo = grupoDe(folio);
+            if (!grupo) return;
+            var abierto = grupo.classList.contains("edicion");
+            document.querySelectorAll("tbody.pago-grupo.edicion").forEach(function (g) {
+                salirEdicion(g, true);
+                cerrarGrupo(g);
+            });
+            if (abierto) return;
+            grupo.classList.add("edicion");
+            btn.classList.add("activo");
+            entrarEdicion(grupo);
+            var der = grupo.querySelector(".desglose-fila");
+            if (der) {
+                der.classList.add("abierto");
+                initDesglose(der);
+                repartirValorGrupo(grupo);
+            }
+            grupo.scrollIntoView({ block: "nearest" });
+        });
     });
 })();
 </script>

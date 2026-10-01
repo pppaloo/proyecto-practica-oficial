@@ -1,22 +1,77 @@
 {% extends "core/base.html" %}
 {% load humanize %}
-{% block title %}Abonar - Vega Los Ángeles{% endblock %}
+{% block title %}Abonar - Desglose mensual - Vega Los Ángeles{% endblock %}
 {% block content %}
-<div class="card" style="max-width: 420px;">
-    <h2 style="color: #1b4d3e; margin-bottom: 20px;">Abonar pago</h2>
-    <p style="margin-bottom: 8px;">Folio: <strong>{{ pago.folio }}</strong></p>
-    <p style="margin-bottom: 8px;">Local: <strong>{{ pago.local.numero }}</strong></p>
-    <p style="margin-bottom: 20px;">Saldo pendiente: <strong>${{ pago.valor|floatformat:0|intcomma }}</strong></p>
-    <form method="post">
+<div class="card">
+    <h2 class="h2-seccion mb6">Desglose mensual</h2>
+    <p class="subtitulo">
+        Local: <strong>{{ pago.local.numero }}</strong> · Folio: <strong>{{ pago.folio }}</strong> · Empresario: <strong>{{ pago.empresario|default:"—" }}</strong>
+    </p>
+    <p class="subtitulo mb16">
+        Periodo: <strong>{{ nombre_mes }} {{ anio }}</strong>
+        <span class="nota-fina">(días hábiles, se excluyen domingos y feriados)</span>
+    </p>
+
+    <form method="post" id="desglose-form">
         {% csrf_token %}
-        <div class="form-group" style="margin-bottom: 16px;">
-            <label>Monto a abonar</label>
-            <input type="number" name="monto" step="0.01" min="0.01" required>
+        <table>
+            <thead>
+                <tr>
+                    <th>Día</th>
+                    <th>Fecha</th>
+                    <th>Valor del día ($)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for fila in filas %}
+                <tr>
+                    <td>{{ forloop.counter }}</td>
+                    <td>{{ fila.dia }} · {{ fila.dia_semana }} · {{ fila.fecha|date:"d/m/Y" }}</td>
+                    <td>
+                        <input type="number" name="valor_{{ fila.dia }}" step="0.01" min="0"
+                               class="valor-dia" value="{{ fila.valor|floatformat:2 }}">
+                    </td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="3" class="vacio">No hay días hábiles en este mes.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        <div class="total-mes-box texto-18 texto-derecha mt18">
+            Total del mes: <span id="total-mes">${{ total_inicial|floatformat:0|intcomma }}</span>
         </div>
-        <div style="display: flex; gap: 10px;">
-            <button class="btn btn-primary" type="submit">Confirmar</button>
+
+        <div class="acciones-derecha">
+            <button class="btn btn-primary" type="submit">Guardar desglose</button>
             <a class="btn btn-outline" href="{% url 'pagos_tipo' tipo %}">Cancelar</a>
         </div>
     </form>
 </div>
+
+<script>
+(function () {
+    var inputs = Array.prototype.slice.call(document.querySelectorAll(".valor-dia"));
+    var totalEl = document.getElementById("total-mes");
+    if (!inputs.length) return;
+
+    function formatear(n) {
+        return "$" + n.toLocaleString("es-CL", { maximumFractionDigits: 0 });
+    }
+
+    function actualizar() {
+        var total = 0;
+        inputs.forEach(function (input) {
+            var v = parseFloat(input.value) || 0;
+            total += v;
+        });
+        totalEl.textContent = formatear(total);
+    }
+
+    inputs.forEach(function (input) {
+        input.addEventListener("input", actualizar);
+    });
+    actualizar();
+})();
+</script>
 {% endblock %}
