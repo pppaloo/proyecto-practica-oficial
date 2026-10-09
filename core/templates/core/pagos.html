@@ -64,103 +64,72 @@
 
     <p class="nota-term mb12">
         {% if es_caja %}
-        Haz clic en <strong>Editar</strong> para modificar cada celda directamente en la tabla. Un <span class="texto-verde">borde verde</span> marca la fila en edición (junto a sus días desglosados). Confirma o cancela para terminar.
+        Haz clic en <strong>Ver días</strong> de un mes para desglosarlo y editar el valor de cada día.
+        El <strong>total</strong> del mes se actualiza sumando los días. Usa <strong>Editar</strong> para cambiar los datos del mes.
         {% else %}
-        Los registros muestran los pagos por local. Tu perfil es de consulta.
+        Cada empresario muestra sus locales, años y meses. Abre un mes para ver el valor de cada día. Tu perfil es de consulta.
         {% endif %}
     </p>
 
     <div id="editar-nota" class="editar-nota">Cambios guardados correctamente.</div>
 
-    <table id="tabla-pagos">
-        <thead>
-            <tr>
-                <th>N° Local</th>
-                <th>Mes</th>
-                <th>Empresario</th>
-                <th>RUT</th>
-                <th>Descripción</th>
-                <th>Valor</th>
-                <th>Fecha Pago</th>
-                <th>Tipo Deuda</th>
-                <th>Domicilio</th>
-                <th>Fono</th>
-                <th>Correo</th>
-                <th>Periodo</th>
-                {% if es_caja %}<th>Acciones</th>{% endif %}
-            </tr>
-        </thead>
-        {% for pago in pagos %}
-        <tbody class="pago-grupo" data-folio="{{ pago.folio }}" data-fecha="{{ pago.fecha|date:"Y-m-d" }}">
-            <tr class="pago-fila">
-                <td data-campo="numero" data-raw="{{ pago.local.numero }}">{{ pago.local.numero }}</td>
-                <td data-campo="mes" data-raw="{{ pago.mes }}">{{ pago.mes }}</td>
-                <td data-campo="empresario" data-raw="{{ pago.empresario }}">{{ pago.empresario }}</td>
-                <td data-campo="rut" data-raw="{{ pago.rut }}">{{ pago.rut }}</td>
-                <td data-campo="descripcion" data-raw="{{ pago.descripcion }}">{{ pago.descripcion }}</td>
-                <td data-campo="valor" data-raw="{{ pago.valor }}">${{ pago.valor|floatformat:0|intcomma }}</td>
-                <td data-campo="fecha_pago" data-raw="{{ pago.fecha_pago|date:"Y-m-d" }}">{{ pago.fecha_pago|date:"d/m/Y"|default:"—" }}</td>
-                <td data-campo="tipo_deuda" data-raw="{{ pago.tipo_deuda }}">{{ pago.tipo_deuda }}</td>
-                <td data-campo="domicilio" data-raw="{{ pago.domicilio }}">{{ pago.domicilio }}</td>
-                <td data-campo="fono" data-raw="{{ pago.fono }}">{{ pago.fono }}</td>
-                <td data-campo="correo" data-raw="{{ pago.correo }}">{{ pago.correo }}</td>
-                <td data-campo="periodo" data-raw="{{ pago.periodo }}">{{ pago.periodo }}</td>
-                {% if es_caja %}
-                <td>
-                    <button type="button" class="btn btn-outline btn-editar" data-grupo="{{ pago.folio }}">Editar</button>
-                </td>
-                {% endif %}
-            </tr>
-            {% if es_caja %}
-            <tr class="desglose-fila">
-                <td colspan="13">
-                    <div class="desglose-contenedor">
-                        <div class="toolbar toolbar-mb6">
-                            <strong class="desglose-titulo">Desglose por día — {{ pago.mes }} {{ pago.fecha|date:"Y" }}</strong>
-                            <button type="button" class="btn btn-eliminar-registro ml-auto">Eliminar registro</button>
-                            <button type="button" class="btn btn-primary btn-confirmar">Confirmar</button>
-                            <button type="button" class="btn btn-outline btn-cerrar">Cancelar</button>
-                        </div>
-                        <table class="desglose-tabla">
-                            <thead>
-                                <tr>
-                                    <th>#</th>
-                                    <th>Día</th>
-                                    <th>Fecha</th>
-                                    <th>Valor por día ($)</th>
-                                    <th>Folio</th>
-                                </tr>
-                            </thead>
-                            <tbody class="desglose-tbody">
-                                {% for fila in pago.desglose %}
-                                <tr class="desglose-fila-dia">
-                                    <td class="num-dia">{{ fila.dia_num }}</td>
-                                    <td><input type="text" name="dia_{{ forloop.counter0 }}" class="dia-nombre-input" value="{{ fila.dia_nombre }}" placeholder="Ej: Miércoles"></td>
-                                    <td><input type="date" name="dia_fecha_{{ forloop.counter0 }}" class="dia-fecha-input" value="{{ fila.fecha }}"></td>
-                                    <td><div class="valor-dia-wrap"><span class="prefijo-peso">$</span><input type="text" inputmode="decimal" name="valor_{{ forloop.counter0 }}" class="valor-dia" data-raw="{{ fila.valor|floatformat:-2 }}" value="{{ fila.valor|floatformat:-2 }}" placeholder="0"></div></td>
-                                    <td><input type="text" name="folio_{{ forloop.counter0 }}" class="folio-dia-input" value="{{ fila.folio }}" placeholder="Folio"></td>
-                                </tr>
-                                {% empty %}
-                                <tr class="desglose-vacio"><td colspan="5" class="vacio">Aún no hay días para este mes.</td></tr>
+    <div class="arbol">
+        {% for emp in arbol %}
+        <details class="nodo arbol-emp" data-emp="{{ emp.nombre }}">
+            <summary class="nodo-sup">
+                <span class="nodo-icono">▸</span>
+                <span class="emp-nombre">{{ emp.nombre }}</span>
+                {% if emp.rut %}<span class="emp-rut">{{ emp.rut }}</span>{% endif %}
+                <span class="nodo-total" data-total="{{ emp.total }}">${{ emp.total|floatformat:0|intcomma }}</span>
+            </summary>
+            <div class="arbol-hijos">
+                {% for loc in emp.locales %}
+                <details class="nodo arbol-local">
+                    <summary>
+                        <span class="nodo-icono">▸</span>
+                        <span class="local-nombre">Local {{ loc.numero }}</span>
+                        <span class="local-tipo">{{ loc.tipo }}</span>
+                    </summary>
+                    <div class="arbol-hijos">
+                        {% for ag in loc.anios %}
+                        <details class="nodo arbol-anio">
+                            <summary>
+                                <span class="nodo-icono">▸</span>
+                                <span class="anio-nombre">{{ ag.anio }}</span>
+                            </summary>
+                            <div class="arbol-hijos meses">
+                                {% for m in ag.meses %}
+                                <div class="mes-item" data-folio="{{ m.folio }}" data-mes="{{ m.mes }}" data-anio="{{ m.anio }}" data-local="{{ m.local_numero }}" data-fecha="{{ m.fecha|date:"Y-m-d" }}" data-n-dias="{{ m.n_dias }}">
+                                    <div class="mes-cab">
+                                        <button type="button" class="mes-toggle" aria-expanded="false">▸ Ver días</button>
+                                        <span class="mes-nombre">{{ m.mes }} {{ m.anio }}</span>
+                                        <span class="mes-meta">Folio {{ m.folio }}{% if m.fecha_pago %} · Pagado {{ m.fecha_pago|date:"d/m/Y" }}{% endif %}{% if m.tipo_deuda %} · {{ m.tipo_deuda }}{% endif %}</span>
+                                        <span class="mes-total" data-total="{{ m.total }}">${{ m.total|floatformat:0|intcomma }}</span>
+                                        {% if es_caja %}
+                                        <a class="btn btn-outline btn-mini" href="{% url 'editar_pago' tipo_actual m.folio %}">Editar</a>
+                                        {% endif %}
+                                    </div>
+                                    <div class="mes-dias" hidden></div>
+                                </div>
                                 {% endfor %}
-                            </tbody>
-                        </table>
-                        <div class="total-fila">
-                            <div class="total-mes-box">
-                                Total: <span class="total-mes">${{ pago.desglose_total|floatformat:0|intcomma }}</span>
                             </div>
-                        </div>
+                        </details>
+                        {% endfor %}
                     </div>
-                </td>
-            </tr>
-            {% endif %}
-        </tbody>
+                </details>
+                {% endfor %}
+            </div>
+        </details>
         {% empty %}
-        <tbody>
-            <tr><td colspan="{% if es_caja %}13{% else %}12{% endif %}" class="vacio">No hay pagos registrados{% if numero_filtro %} para ese número{% endif %}.</td></tr>
-        </tbody>
+        <div class="vacio">No hay pagos registrados{% if numero_filtro %} para ese número{% endif %}.</div>
         {% endfor %}
-    </table>
+    </div>
+
+    {% if arbol %}
+    <div class="total-general">
+        Total consulta: <span>${{ total_consulta|floatformat:0|intcomma }}</span>
+    </div>
+    {% endif %}
 </div>
 
 <script>
@@ -168,38 +137,6 @@
     function getCsrf() {
         var cookie = document.cookie.split("; ").find(function (c) { return c.indexOf("csrftoken=") === 0; });
         return cookie ? cookie.split("=")[1] : "";
-    }
-
-    function formatear(n) {
-        return "$" + n.toLocaleString("es-CL", { maximumFractionDigits: 0 });
-    }
-
-    function enviar(folio, accion, data, tr, recalcular) {
-        var url = "{% url 'abonar_pago' tipo_actual 'FOLIO' %}".replace("FOLIO", folio);
-        var body = new URLSearchParams();
-        Object.keys(data).forEach(function (k) { body.append(k, data[k]); });
-        body.append("accion", accion);
-        fetch(url, {
-            method: "POST",
-            headers: { "X-CSRFToken": getCsrf() },
-            body: body,
-            credentials: "same-origin"
-        }).then(function (r) { return r.json(); }).then(function (res) {
-            if (res.ok) {
-                if (tr) tr.setAttribute("data-guardado", "1");
-                if (recalcular) recalcular();
-            } else {
-                if (tr) tr.setAttribute("data-error", res.error || "Error");
-            }
-        }).catch(function () {});
-    }
-
-    function totalDeForm(filaDesglose) {
-        var total = 0;
-        Array.prototype.slice.call(filaDesglose.querySelectorAll(".valor-dia")).forEach(function (input) {
-            total += parsearCLP(input.value) || 0;
-        });
-        return total;
     }
 
     function parsearCLP(str) {
@@ -210,190 +147,26 @@
         limpio = limpio.replace("-", "");
         limpio = limpio.replace(/\./g, "").replace(",", ".");
         var n = parseFloat(limpio);
-        return negativo ? -n : n;
+        return isNaN(n) ? 0 : (negativo ? -n : n);
     }
 
     function formatearCLP(n) {
         var v = Math.round(n * 100) / 100;
-        var texto = v.toLocaleString("es-CL", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-        return texto;
+        return v.toLocaleString("es-CL", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function formatearPeso(n) {
+        return "$" + Math.round(n).toLocaleString("es-CL", { maximumFractionDigits: 0 });
     }
 
     var NOMBRES_DIAS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
 
-    function actualizarDesdeFecha(trNueva) {
-        var fechaInput = trNueva.querySelector(".dia-fecha-input");
-        var nombreInput = trNueva.querySelector(".dia-nombre-input");
-        var numEl = trNueva.querySelector(".num-dia");
-        var val = fechaInput.value;
-        if (val) {
-            var partes = val.split("-");
-            var fecha = new Date(parseInt(partes[0], 10), parseInt(partes[1], 10) - 1, parseInt(partes[2], 10));
-            nombreInput.value = NOMBRES_DIAS[fecha.getDay() === 0 ? 6 : fecha.getDay() - 1];
-            numEl.textContent = parseInt(partes[2], 10);
-        } else {
-            nombreInput.value = "";
-            numEl.textContent = "";
-        }
-    }
+    var URL_DESGLOSE = "{% url 'desglose_pago' tipo_actual 'FOLIO' %}";
+    var URL_ABONAR = "{% url 'abonar_pago' tipo_actual 'FOLIO' %}";
+    var URL_ELIMINAR = "{% url 'eliminar_pago' tipo_actual 'FOLIO' %}";
 
-    function bindFila(trNueva, tbody, recalcular) {
-        var datos = {
-            diaNombre: trNueva.querySelector(".dia-nombre-input"),
-            diaFecha: trNueva.querySelector(".dia-fecha-input"),
-            valor: trNueva.querySelector(".valor-dia"),
-            folio: trNueva.querySelector(".folio-dia-input")
-        };
-        var timer = null;
-
-        function folioActual() {
-            var grupo = trNueva.closest("tbody.pago-grupo");
-            return grupo ? grupo.getAttribute("data-folio") : "";
-        }
-
-        function guardar() {
-            clearTimeout(timer);
-            var diaFecha = datos.diaFecha.value;
-            var valor = parsearCLP(datos.valor.value);
-            if (diaFecha !== "") {
-                enviar(folioActual(), "guardar", {
-                    dia_fecha: diaFecha,
-                    dia_nombre: datos.diaNombre.value,
-                    valor: valor,
-                    folio: datos.folio.value
-                }, trNueva, recalcular);
-            }
-        }
-
-        Object.keys(datos).forEach(function (k) {
-            datos[k].addEventListener("input", function () {
-                if (recalcular) recalcular();
-                clearTimeout(timer);
-                timer = setTimeout(guardar, 600);
-            });
-        });
-
-        datos.diaFecha.addEventListener("input", function () {
-            actualizarDesdeFecha(trNueva);
-        });
-    }
-
-    function initDesglose(desgloseFila) {
-        if (desgloseFila.getAttribute("data-iniciado") === "1") return;
-        desgloseFila.setAttribute("data-iniciado", "1");
-
-        var tbody = desgloseFila.querySelector(".desglose-tbody");
-        var totalEl = desgloseFila.querySelector(".total-mes");
-
-        function recalcular() {
-            totalEl.textContent = formatear(totalDeForm(desgloseFila));
-        }
-
-        Array.prototype.slice.call(tbody.querySelectorAll(".desglose-fila-dia")).forEach(function (tr) {
-            bindFila(tr, tbody, recalcular);
-        });
-
-        Array.prototype.slice.call(tbody.querySelectorAll(".valor-dia")).forEach(function (inp) {
-            var n = parsearCLP(inp.value);
-            if (n || n === 0) inp.value = formatearCLP(n);
-        });
-
-        recalcular();
-    }
-
-    function grupoDe(folio) {
-        return document.querySelector('tbody.pago-grupo[data-folio="' + folio + '"]');
-    }
-
-    function repartirValorGrupo(grupo) {
-        var der = grupo.querySelector(".desglose-fila");
-        if (der && der.getAttribute("data-iniciado") === "1") {
-            var tbody = der.querySelector(".desglose-tbody");
-            var valorInput = grupo.querySelector('.campo-input[data-campo="valor"]');
-            if (!valorInput) return;
-            var valor = parseFloat(valorInput.value);
-            var inputs = Array.prototype.slice.call(tbody.querySelectorAll(".valor-dia"));
-            if (!(valor > 0) || !inputs.length) return;
-            var totalCentavos = Math.round(valor * 100);
-            var base = Math.floor(totalCentavos / inputs.length);
-            var resto = totalCentavos % inputs.length;
-            inputs.forEach(function (inp, i) {
-                inp.value = formatearCLP((base + (i < resto ? 1 : 0)) / 100);
-            });
-            var totalEl = der.querySelector(".total-mes");
-            if (totalEl) totalEl.textContent = formatear(totalDeForm(der));
-        }
-    }
-
-    function entrarEdicion(grupo) {
-        grupo.querySelectorAll("td[data-campo]").forEach(function (td) {
-            if (td._edit) return;
-            var campo = td.getAttribute("data-campo");
-            var raw = td.getAttribute("data-raw") || "";
-            var input = document.createElement("input");
-            input.className = "campo-input";
-            input.setAttribute("data-campo", campo);
-            if (campo === "fecha" || campo === "fecha_pago") {
-                input.type = "date";
-                input.value = raw;
-            } else if (campo === "valor") {
-                input.type = "number";
-                input.step = "0.01";
-                input.min = "0";
-                input.value = raw;
-                input.addEventListener("input", function () {
-                    repartirValorGrupo(grupo);
-                });
-            } else {
-                input.type = "text";
-                input.value = raw;
-            }
-            td._edit = true;
-            td._original = td.innerHTML;
-            td.innerHTML = "";
-            td.appendChild(input);
-        });
-    }
-
-    function salirEdicion(grupo, restaurar) {
-        grupo.querySelectorAll("td[data-campo]").forEach(function (td) {
-            if (!td._edit) return;
-            if (restaurar && td._original !== undefined) {
-                td.innerHTML = td._original;
-            }
-            delete td._edit;
-            delete td._original;
-        });
-    }
-
-    function cerrarGrupo(grupo) {
-        var folio = grupo.getAttribute("data-folio");
-        var der = grupo.querySelector(".desglose-fila");
-        if (der) der.classList.remove("abierto");
-        grupo.classList.remove("edicion");
-        var eb = document.querySelector('.btn-editar[data-grupo="' + folio + '"]');
-        if (eb) eb.classList.remove("activo");
-    }
-
-    function aplicarRespuesta(grupo, res) {
-        grupo.querySelectorAll("td[data-campo]").forEach(function (td) {
-            var campo = td.getAttribute("data-campo");
-            if (!(campo in res)) return;
-            var valor = res[campo];
-            var raw = res[campo + "_raw"] !== undefined ? res[campo + "_raw"] : valor;
-            td.setAttribute("data-raw", raw);
-            if (campo === "valor") {
-                td.innerHTML = "$" + valor;
-            } else if (campo === "fecha" || campo === "fecha_pago") {
-                td.innerHTML = valor || "—";
-            } else {
-                td.innerHTML = valor;
-            }
-            delete td._edit;
-            delete td._original;
-        });
-        grupo.setAttribute("data-folio", res.folio);
-        if (res.fecha_raw) grupo.setAttribute("data-fecha", res.fecha_raw);
+    function url(base, folio) {
+        return base.replace("FOLIO", encodeURIComponent(folio));
     }
 
     function nota(texto) {
@@ -405,111 +178,251 @@
         n._timer = setTimeout(function () { n.style.display = "none"; }, 3500);
     }
 
-    var confirmar = document.querySelectorAll(".btn-confirmar");
-    Array.prototype.slice.call(confirmar).forEach(function (btn) {
-        btn.addEventListener("click", function () {
-            var grupo = btn.closest("tbody.pago-grupo");
-            if (!grupo) return;
-            var folio = grupo.getAttribute("data-folio");
-            var body = new URLSearchParams();
-            grupo.querySelectorAll("td[data-campo] .campo-input").forEach(function (inp) {
-                body.append(inp.getAttribute("data-campo"), inp.value);
+    function actualizarTotales(mesItem, nuevoTotal) {
+        var totalEl = mesItem.querySelector(".mes-total");
+        var anterior = parseFloat(totalEl.getAttribute("data-total") || "0");
+        var delta = nuevoTotal - anterior;
+        totalEl.setAttribute("data-total", nuevoTotal);
+        totalEl.textContent = formatearPeso(nuevoTotal);
+        var emp = mesItem.closest(".arbol-emp");
+        if (emp) {
+            var empTotalEl = emp.querySelector(":scope > summary .nodo-total");
+            if (empTotalEl) {
+                var empTotal = parseFloat(empTotalEl.getAttribute("data-total") || "0") + delta;
+                empTotalEl.setAttribute("data-total", empTotal);
+                empTotalEl.textContent = formatearPeso(empTotal);
+            }
+        }
+    }
+
+    function enviarDia(folio, data, mesItem, recalcular) {
+        var body = new URLSearchParams();
+        Object.keys(data).forEach(function (k) { body.append(k, data[k]); });
+        body.append("accion", "guardar");
+        return fetch(url(URL_ABONAR, folio), {
+            method: "POST",
+            headers: { "X-CSRFToken": getCsrf() },
+            body: body,
+            credentials: "same-origin"
+        }).then(function (r) { return r.json(); }).then(function (res) {
+            if (res.ok) {
+                recalcular();
+            } else {
+                nota(res.error || "No se pudo guardar el día.");
+            }
+        }).catch(function () { nota("Error de conexión al guardar el día."); });
+    }
+
+    function construirDias(mesItem, datos) {
+        var folio = mesItem.getAttribute("data-folio");
+        var cont = mesItem.querySelector(".mes-dias");
+        cont.innerHTML = "";
+
+        var tabla = document.createElement("table");
+        tabla.className = "desglose-tabla";
+        tabla.innerHTML = "<thead><tr><th>#</th><th>Día</th><th>Fecha</th><th>Valor por día ($)</th><th>Folio</th></tr></thead>";
+        var tbody = document.createElement("tbody");
+        tabla.appendChild(tbody);
+
+        function recalcular() {
+            var total = 0;
+            Array.prototype.slice.call(tbody.querySelectorAll(".valor-dia")).forEach(function (inp) {
+                total += parsearCLP(inp.value) || 0;
             });
-            if (!body.has("fecha")) body.append("fecha", grupo.getAttribute("data-fecha") || "");
-            if (!body.has("folio")) body.append("folio", grupo.getAttribute("data-folio") || "");
+            actualizarTotales(mesItem, total);
+        }
+
+        datos.dias.forEach(function (fila) {
+            var tr = document.createElement("tr");
+            tr.className = "desglose-fila-dia";
+
+            var tdNum = document.createElement("td");
+            tdNum.className = "num-dia";
+            tdNum.textContent = fila.dia_num;
+
+            var tdDia = document.createElement("td");
+            var inDia = document.createElement("input");
+            inDia.type = "text";
+            inDia.className = "dia-nombre-input";
+            inDia.value = fila.dia_nombre;
+            tdDia.appendChild(inDia);
+
+            var tdFecha = document.createElement("td");
+            var inFecha = document.createElement("input");
+            inFecha.type = "date";
+            inFecha.className = "dia-fecha-input";
+            inFecha.value = fila.fecha;
+            tdFecha.appendChild(inFecha);
+
+            var tdValor = document.createElement("td");
+            var wrap = document.createElement("div");
+            wrap.className = "valor-dia-wrap";
+            var prefijo = document.createElement("span");
+            prefijo.className = "prefijo-peso";
+            prefijo.textContent = "$";
+            var inValor = document.createElement("input");
+            inValor.type = "text";
+            inValor.inputMode = "decimal";
+            inValor.className = "valor-dia";
+            inValor.value = formatearCLP(parsearCLP(String(fila.valor)));
+            wrap.appendChild(prefijo);
+            wrap.appendChild(inValor);
+            tdValor.appendChild(wrap);
+
+            var tdFolio = document.createElement("td");
+            var inFolio = document.createElement("input");
+            inFolio.type = "text";
+            inFolio.className = "folio-dia-input";
+            inFolio.value = fila.folio || "";
+            tdFolio.appendChild(inFolio);
+
+            tr.appendChild(tdNum);
+            tr.appendChild(tdDia);
+            tr.appendChild(tdFecha);
+            tr.appendChild(tdValor);
+            tr.appendChild(tdFolio);
+            tbody.appendChild(tr);
+
+            var timer = null;
+
+            function guardar() {
+                var diaFecha = inFecha.value;
+                if (!diaFecha) return;
+                enviarDia(folio, {
+                    dia_fecha: diaFecha,
+                    dia_nombre: inDia.value,
+                    valor: parsearCLP(inValor.value),
+                    folio: inFolio.value
+                }, mesItem, recalcular);
+            }
+
+            [inDia, inValor, inFolio].forEach(function (inp) {
+                inp.addEventListener("input", function () {
+                    recalcular();
+                    clearTimeout(timer);
+                    timer = setTimeout(guardar, 600);
+                });
+            });
+
+            inFecha.addEventListener("input", function () {
+                if (!inFecha.value) return;
+                var partes = inFecha.value.split("-");
+                var f = new Date(parseInt(partes[0], 10), parseInt(partes[1], 10) - 1, parseInt(partes[2], 10));
+                inDia.value = NOMBRES_DIAS[f.getDay() === 0 ? 6 : f.getDay() - 1];
+                tdNum.textContent = parseInt(partes[2], 10);
+                clearTimeout(timer);
+                timer = setTimeout(guardar, 400);
+            });
+        });
+
+        var pie = document.createElement("div");
+        pie.className = "total-fila";
+        pie.innerHTML = '<div class="total-mes-box">Total mes: <span class="total-mes"></span></div>';
+
+        var barra = document.createElement("div");
+        barra.className = "toolbar toolbar-mb6";
+        var titulo = document.createElement("strong");
+        titulo.className = "desglose-titulo";
+        titulo.textContent = "Desglose por día — " + datos.mes + " " + datos.anio;
+        var btnEliminar = document.createElement("button");
+        btnEliminar.type = "button";
+        btnEliminar.className = "btn btn-eliminar-registro ml-auto";
+        btnEliminar.textContent = "Eliminar mes";
+        var btnCerrar = document.createElement("button");
+        btnCerrar.type = "button";
+        btnCerrar.className = "btn btn-outline btn-cerrar";
+        btnCerrar.textContent = "Cerrar";
+        barra.appendChild(titulo);
+        barra.appendChild(btnEliminar);
+        barra.appendChild(btnCerrar);
+
+        var contenedor = document.createElement("div");
+        contenedor.className = "desglose-contenedor";
+        contenedor.appendChild(barra);
+        contenedor.appendChild(tabla);
+        contenedor.appendChild(pie);
+        cont.appendChild(contenedor);
+
+        btnCerrar.addEventListener("click", function () {
+            mesItem.querySelector(".mes-dias").hidden = true;
+            var t = mesItem.querySelector(".mes-toggle");
+            t.setAttribute("aria-expanded", "false");
+            t.textContent = "▸ Ver días";
+        });
+
+        btnEliminar.addEventListener("click", function () {
+            if (!window.confirm("¿Eliminar este mes y su desglose? Esta acción no se puede deshacer.")) return;
+            var body = new URLSearchParams();
             body.append("formato", "json");
-            var url = "{% url 'editar_pago' tipo_actual 'FOLIO' %}".replace("FOLIO", folio);
-            btn.disabled = true;
-            btn.textContent = "Guardando...";
-            fetch(url, {
+            btnEliminar.disabled = true;
+            btnEliminar.textContent = "Eliminando...";
+            fetch(url(URL_ELIMINAR, folio), {
                 method: "POST",
                 headers: { "X-CSRFToken": getCsrf() },
                 body: body,
                 credentials: "same-origin"
             }).then(function (r) { return r.json(); }).then(function (res) {
-                btn.disabled = false;
-                btn.textContent = "Confirmar";
                 if (!res.ok) {
-                    nota(res.error || "No se pudo guardar.");
-                    return;
-                }
-                aplicarRespuesta(grupo, res);
-                cerrarGrupo(grupo);
-                nota("Cambios guardados correctamente.");
-            }).catch(function () {
-                btn.disabled = false;
-                btn.textContent = "Confirmar";
-                nota("Error de conexión al guardar.");
-            });
-        });
-    });
-
-    Array.prototype.slice.call(document.querySelectorAll(".btn-cerrar")).forEach(function (btn) {
-        btn.addEventListener("click", function () {
-            var grupo = btn.closest("tbody.pago-grupo");
-            if (!grupo) return;
-            var folio = grupo.getAttribute("data-folio");
-            salirEdicion(grupo, true);
-            cerrarGrupo(grupo);
-            var eb = document.querySelector('.btn-editar[data-grupo="' + folio + '"]');
-            if (eb) eb.classList.remove("activo");
-        });
-    });
-
-    Array.prototype.slice.call(document.querySelectorAll(".btn-eliminar-registro")).forEach(function (btn) {
-        btn.addEventListener("click", function () {
-            var grupo = btn.closest("tbody.pago-grupo");
-            if (!grupo) return;
-            var folio = grupo.getAttribute("data-folio");
-            if (!window.confirm("¿Eliminar este registro y su desglose? Esta acción no se puede deshacer.")) return;
-            var url = "{% url 'eliminar_pago' tipo_actual 'FOLIO' %}".replace("FOLIO", folio);
-            var body = new URLSearchParams();
-            body.append("formato", "json");
-            btn.disabled = true;
-            btn.textContent = "Eliminando...";
-            fetch(url, {
-                method: "POST",
-                headers: { "X-CSRFToken": getCsrf() },
-                body: body,
-                credentials: "same-origin"
-            }).then(function (r) { return r.json(); }).then(function (res) {
-                if (!res.ok) {
-                    btn.disabled = false;
-                    btn.textContent = "Eliminar registro";
+                    btnEliminar.disabled = false;
+                    btnEliminar.textContent = "Eliminar mes";
                     nota(res.error || "No se pudo eliminar.");
                     return;
                 }
-                grupo.parentNode.removeChild(grupo);
-                nota("Registro eliminado correctamente.");
+                var emp = mesItem.closest(".arbol-emp");
+                var empTotalEl = emp ? emp.querySelector(":scope > summary .nodo-total") : null;
+                if (empTotalEl) {
+                    var totalEl = mesItem.querySelector(".mes-total");
+                    var t = parseFloat(totalEl.getAttribute("data-total") || "0");
+                    var empTotal = parseFloat(empTotalEl.getAttribute("data-total") || "0") - t;
+                    empTotalEl.setAttribute("data-total", empTotal);
+                    empTotalEl.textContent = formatearPeso(empTotal);
+                }
+                mesItem.parentNode.removeChild(mesItem);
+                nota("Mes eliminado correctamente.");
             }).catch(function () {
-                btn.disabled = false;
-                btn.textContent = "Eliminar registro";
+                btnEliminar.disabled = false;
+                btnEliminar.textContent = "Eliminar mes";
                 nota("Error de conexión al eliminar.");
             });
         });
-    });
 
-    Array.prototype.slice.call(document.querySelectorAll(".btn-editar")).forEach(function (btn) {
-        btn.addEventListener("click", function () {
-            var folio = btn.getAttribute("data-grupo");
-            var grupo = grupoDe(folio);
-            if (!grupo) return;
-            var abierto = grupo.classList.contains("edicion");
-            document.querySelectorAll("tbody.pago-grupo.edicion").forEach(function (g) {
-                salirEdicion(g, true);
-                cerrarGrupo(g);
-            });
-            if (abierto) return;
-            grupo.classList.add("edicion");
-            btn.classList.add("activo");
-            entrarEdicion(grupo);
-            var der = grupo.querySelector(".desglose-fila");
-            if (der) {
-                der.classList.add("abierto");
-                initDesglose(der);
-                repartirValorGrupo(grupo);
+        var totalMesEl = contenedor.querySelector(".total-mes");
+        var suma = 0;
+        datos.dias.forEach(function (f) { suma += parsearCLP(String(f.valor)) || 0; });
+        totalMesEl.textContent = formatearPeso(suma);
+    }
+
+    function cargarDias(mesItem) {
+        var folio = mesItem.getAttribute("data-folio");
+        fetch(url(URL_DESGLOSE, folio), { credentials: "same-origin" })
+            .then(function (r) { return r.json(); })
+            .then(function (res) {
+                if (res.ok) {
+                    construirDias(mesItem, res);
+                } else {
+                    nota(res.error || "No se pudo cargar el desglose.");
+                }
+            }).catch(function () { nota("Error de conexión al cargar el desglose."); });
+    }
+
+    Array.prototype.slice.call(document.querySelectorAll(".mes-item")).forEach(function (mesItem) {
+        var toggle = mesItem.querySelector(".mes-toggle");
+        toggle.addEventListener("click", function () {
+            var cont = mesItem.querySelector(".mes-dias");
+            var abierto = !cont.hidden;
+            if (abierto) {
+                cont.hidden = true;
+                toggle.setAttribute("aria-expanded", "false");
+                toggle.textContent = "▸ Ver días";
+                return;
             }
-            grupo.scrollIntoView({ block: "nearest" });
+            cont.hidden = false;
+            toggle.setAttribute("aria-expanded", "true");
+            toggle.textContent = "▾ Ocultar días";
+            if (cont.getAttribute("data-cargado") !== "1") {
+                cont.setAttribute("data-cargado", "1");
+                cargarDias(mesItem);
+            }
         });
     });
 })();

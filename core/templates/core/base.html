@@ -195,6 +195,43 @@
         #desglose-form .valor-dia { width: 140px; }
         .valor-dia-wrap { display: flex; align-items: center; }
         .prefijo-peso { color: #555; margin-right: 4px; font-size: 11px; }
+
+        .arbol { font-size: 14px; }
+        .arbol .nodo { margin: 4px 0; }
+        .arbol details.nodo { border-left: 2px solid transparent; }
+        .arbol summary {
+            list-style: none; cursor: pointer; display: flex; align-items: center; gap: 8px;
+            padding: 7px 10px; border-radius: 6px; user-select: none;
+        }
+        .arbol summary::-webkit-details-marker { display: none; }
+        .arbol summary:hover { background: #eef4f1; }
+        .nodo-icono { color: #1b4d3e; font-size: 12px; transition: transform .12s ease; display: inline-block; width: 12px; }
+        details[open] > summary > .nodo-icono { transform: rotate(90deg); }
+        .arbol-hijos { margin-left: 22px; border-left: 1px dashed #cfe0d8; padding-left: 8px; }
+        .arbol-emp > summary { background: #e8f0ed; font-weight: 700; color: #143b30; }
+        .arbol-emp > summary:hover { background: #dcebe4; }
+        .arbol-local > summary { font-weight: 600; color: #1b4d3e; }
+        .arbol-anio > summary { color: #2f6b57; font-weight: 600; }
+        .emp-nombre { font-size: 15px; }
+        .emp-rut { color: #6b7d76; font-weight: 500; font-size: 12px; }
+        .nodo-total { margin-left: auto; font-weight: 700; color: #143b30; font-size: 14px; }
+        .local-tipo { color: #8a9a93; font-size: 12px; }
+        .anio-nombre { font-size: 13px; }
+        .meses { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 10px; }
+        .mes-item { border: 1px solid #dbe6e1; border-radius: 8px; background: #fff; overflow: hidden; }
+        .mes-cab { display: flex; align-items: center; gap: 10px; padding: 6px 10px; flex-wrap: wrap; }
+        .mes-toggle {
+            background: #1b4d3e; color: #fff; border: none; border-radius: 6px;
+            padding: 4px 10px; cursor: pointer; font-size: 12px; white-space: nowrap;
+        }
+        .mes-toggle:hover { background: #143b30; }
+        .mes-nombre { font-weight: 700; color: #143b30; }
+        .mes-meta { color: #7b8b84; font-size: 12px; }
+        .mes-total { margin-left: auto; font-weight: 700; color: #1b4d3e; }
+        .btn-mini { font-size: 12px; padding: 4px 10px; }
+        .mes-dias[hidden] { display: none; }
+        .mes-dias { background: #f7faf9; border-top: 1px solid #e3ece8; }
+        .total-mes { font-weight: 700; color: #1b4d3e; }
     </style>
 </head>
 <body>

@@ -18,6 +18,7 @@ urlpatterns = [
     path('pagos/<str:tipo>/', views.pagos, name='pagos_tipo'),
     path('pagos/<str:tipo>/agregar/', views.agregar_pago, name='agregar_pago'),
     path('pagos/<str:tipo>/abonar/<str:folio>/', views.abonar_pago, name='abonar_pago'),
+    path('pagos/<str:tipo>/desglose/<str:folio>/', views.desglose_pago, name='desglose_pago'),
     path('pagos/<str:tipo>/editar/<str:folio>/', views.editar_pago, name='editar_pago'),
     path('pagos/<str:tipo>/eliminar/<str:folio>/', views.eliminar_pago, name='eliminar_pago'),
     path('reportes/', views.reportes, name='reportes'),

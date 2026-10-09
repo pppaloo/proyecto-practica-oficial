@@ -1,13 +1,19 @@
 import re
 import unicodedata
 from datetime import date, datetime
+from decimal import Decimal
 
-from core.models import Local, Pago, TIPOS_LOCAL
+from core.feriados import dia_habil_para
+from core.models import Local, Pago, PagoDiario, TIPOS_LOCAL
 
 
 MESES_ES = [
     "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
     "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+]
+
+DIAS_SEMANA_ES = [
+    "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo",
 ]
 
 
@@ -83,6 +89,48 @@ def tipo_desde_hoja(nombre_hoja):
     return None
 
 
+_DIA_COL_RE = re.compile(r"^(?:d(?:ia)?)?\s*([0-9]{1,2})\s*$", re.IGNORECASE)
+
+
+def _dia_desde_cabecera(cabecera):
+    """Si la cabecera parece un día (1..31, 'Día 1', 'D1'), devuelve el número del día; si no, None."""
+    if cabecera is None:
+        return None
+    n = _clave(str(cabecera))
+    if not n:
+        return None
+    num = _DIA_COL_RE.search(n)
+    if not num:
+        return None
+    dia = int(num.group(1))
+    return dia if 1 <= dia <= 31 else None
+
+
+def _mes_numero(mes):
+    """Convierte un mes (nombre o número) a 1..12. Devuelve None si no se reconoce o mes inválido."""
+    if mes is None or str(mes).strip() == "":
+        return None
+    s = str(mes).strip()
+    if s.isdigit():
+        n = int(s)
+        return n if 1 <= n <= 12 else None
+    for i, m in enumerate(MESES_ES, start=1):
+        if norm(m) == norm(s) or norm(m)[:3] == norm(s)[:3]:
+            return i
+    return None
+
+
+def _anio_de_valor(valor):
+    """Devuelve un año válido (1900..2100) a partir de un valor; None si no es válido."""
+    if valor is None:
+        return None
+    s = str(valor).strip()
+    if s.isdigit():
+        anio = int(s)
+        return anio if 1900 <= anio <= 2100 else None
+    return None
+
+
 def importar_workbook(ws, tipo_default=None):
     """Lee una hoja de Excel y crea/actualiza Pagos por lotes. Devuelve dict de contador."""
     contador = {"creados": 0, "actualizados": 0, "sin_cambios": 0, "errores": 0, "fila": []}
@@ -110,7 +158,7 @@ def importar_workbook(ws, tipo_default=None):
         "fecha_pago": next((i for i, h in enumerate(headers) if "pago" in h and "fecha" in h), None),
         "fecha": next((i for i, h in enumerate(headers) if h == "fecha"), None),
         "mes": next((i for i, h in enumerate(headers) if h == "mes"), None),
-        "anio": next((i for i, h in enumerate(headers) if h in ("anio", "año") or "anio" in h), None),
+        "anio": next((i for i, h in enumerate(headers) if h in ("anio", "año", "ano") or "anio" in h), None),
         "folio": next((i for i, h in enumerate(headers) if "folio" in h), None),
         "tipo": next(
             (i for i, h in enumerate(headers) if h == "tipo"),
@@ -121,6 +169,12 @@ def importar_workbook(ws, tipo_default=None):
         contador["error"] = "No se encontró la columna 'N° Local'. Cabeceras: %s" % [h or "?" for h in headers]
         return contador
 
+    dias_columnas = []
+    for i, h in enumerate(headers):
+        d = _dia_desde_cabecera(h)
+        if d is not None:
+            dias_columnas.append((i, d))
+
     locales = {l.numero: l for l in Local.objects.all()}
     tamano = 2000
     lote_rows = []
@@ -129,16 +183,16 @@ def importar_workbook(ws, tipo_default=None):
             continue
         lote_rows.append((num_fila, fila))
         if len(lote_rows) >= tamano:
-            _procesar_lote(lote_rows, idx, tipo_default, locales, contador)
+            _procesar_lote(lote_rows, idx, dias_columnas, tipo_default, locales, contador)
             lote_rows = []
     if lote_rows:
-        _procesar_lote(lote_rows, idx, tipo_default, locales, contador)
+        _procesar_lote(lote_rows, idx, dias_columnas, tipo_default, locales, contador)
 
     return contador
 
 
-def _procesar_lote(filas, idx, tipo_default, locales, contador):
-    """Procesa un lote de filas: parsea, crea Locales faltantes y crea/actualiza Pagos en bloque."""
+def _procesar_lote(filas, idx, dias_columnas, tipo_default, locales, contador):
+    """Procesa un lote de filas: parsea, crea Locales faltantes y crea/actualiza Pagos y días."""
     filas_parseadas = []
     for num_fila, fila in filas:
         numero_celda = fila[idx["numero"] if idx["numero"] is not None else idx["local"]]
@@ -155,27 +209,56 @@ def _procesar_lote(filas, idx, tipo_default, locales, contador):
         fecha_obj = parsear_fecha(fila[idx["fecha"]] if idx["fecha"] is not None else None)
         if fecha_obj is None and fecha_pago_obj is not None:
             fecha_obj = fecha_pago_obj
-        if fecha_obj is None:
-            anio = str(fila[idx["anio"]]).strip() if idx["anio"] is not None and fila[idx["anio"]] else None
-            if anio and anio.isdigit():
-                fecha_obj = date(int(anio), 1, 1)
 
         mes_salida = parsear_mes(fila[idx["mes"]] if idx["mes"] is not None else None)
-        if not mes_salida and fecha_obj:
-            mes_salida = MESES_ES[fecha_obj.month - 1]
-        periodo = str(fila[idx["periodo"]]).strip() if idx["periodo"] is not None and fila[idx["periodo"]] else ""
+        mes_num = _mes_numero(fila[idx["mes"]] if idx["mes"] is not None else None)
+        anio_num = _anio_de_valor(fila[idx["anio"]] if idx["anio"] is not None else None)
+
+        if fecha_obj is None and anio_num:
+            fecha_obj = date(anio_num, mes_num or 1, 1)
+        if fecha_obj is not None:
+            if not mes_num:
+                mes_num = fecha_obj.month
+            if not anio_num:
+                anio_num = fecha_obj.year
+        if not mes_salida and mes_num:
+            mes_salida = MESES_ES[mes_num - 1]
+
+        periodo = str(fila[idx["periodo"]] if idx["periodo"] is not None and fila[idx["periodo"]] else "").strip()
         if not periodo and fecha_obj:
-            periodo = f"{mes_salida} {fecha_obj.year}"
+            periodo = f"{mes_salida} {anio_num or fecha_obj.year}"
+
+        # Valores por día (si la hoja trae columnas D1..D31 o similares)
+        dias = []
+        if dias_columnas and anio_num and mes_num:
+            for col, dia in dias_columnas:
+                valor_dia = parsear_decimal(fila[col] if col < len(fila) else None)
+                if valor_dia is None:
+                    continue
+                try:
+                    fecha_dia = date(anio_num, mes_num, dia)
+                except ValueError:
+                    continue
+                if not dia_habil_para(tipo, fecha_dia):
+                    continue
+                dias.append({
+                    "fecha": fecha_dia,
+                    "dia": DIAS_SEMANA_ES[fecha_dia.weekday()],
+                    "valor": valor_dia,
+                })
 
         valor = parsear_decimal(fila[idx["valor"]] if idx["valor"] is not None else None)
+        if dias:
+            valor = sum((Decimal(str(d["valor"])) for d in dias), Decimal("0"))
         if valor is None:
             contador["errores"] += 1
             contador["fila"].append(f"Fila {num_fila}: valor inválido o faltante en local {numero}.")
             continue
+        valor = Decimal(str(valor))
 
-        folio = str(fila[idx["folio"]]).strip() if idx["folio"] is not None and fila[idx["folio"]] else ""
+        folio = str(fila[idx["folio"]] if idx["folio"] is not None and fila[idx["folio"]] else "").strip()
         if not folio and fecha_obj:
-            folio = f"{numero}-{fecha_obj.year}-{fecha_obj.month}"
+            folio = f"{numero}-{anio_num or fecha_obj.year}-{mes_num or fecha_obj.month}"
         if not folio:
             contador["errores"] += 1
             contador["fila"].append(f"Fila {num_fila}: sin folio y sin fecha para generarlo en local {numero}, se omitió.")
@@ -186,6 +269,7 @@ def _procesar_lote(filas, idx, tipo_default, locales, contador):
             "numero": numero,
             "tipo": tipo,
             "folio": folio,
+            "dias": dias,
             "datos": {
                 "fecha": fecha_obj,
                 "mes": mes_salida,
@@ -220,6 +304,7 @@ def _procesar_lote(filas, idx, tipo_default, locales, contador):
     nuevos = []
     a_actualizar = []
     memo_lote = {}
+    dias_por_folio = {}
 
     for r in filas_parseadas:
         folio = r["folio"]
@@ -227,6 +312,11 @@ def _procesar_lote(filas, idx, tipo_default, locales, contador):
         if r["tipo"] and local.tipo != r["tipo"]:
             local.tipo = r["tipo"]
             local.save()
+
+        if r["dias"]:
+            destino = dias_por_folio.setdefault(folio, {})
+            for d in r["dias"]:
+                destino[d["fecha"]] = d
 
         pago = pagos_existentes.get(folio)
         if pago is None and folio in memo_lote:
@@ -265,6 +355,54 @@ def _procesar_lote(filas, idx, tipo_default, locales, contador):
             ["fecha", "mes", "empresario", "rut", "descripcion", "tipo_deuda",
              "domicilio", "fono", "correo", "periodo", "valor", "fecha_pago", "local"],
         )
+
+    _guardar_dias_lote(dias_por_folio)
+
+
+def _guardar_dias_lote(dias_por_folio):
+    """Crea/actualiza los PagoDiario de un lote con el valor tal cual vino del Excel."""
+    if not dias_por_folio:
+        return
+
+    folios_dias = list(dias_por_folio.keys())
+    pago_por_folio = {p.folio: p for p in Pago.objects.filter(folio__in=folios_dias)}
+
+    existentes = PagoDiario.objects.filter(pago__folio__in=folios_dias)
+    existentes_map = {(d.pago_id, d.fecha): d for d in existentes}
+
+    nuevos_dias = []
+    a_actualizar_dias = []
+    for folio, dias in dias_por_folio.items():
+        pago = pago_por_folio.get(folio)
+        if pago is None:
+            continue
+        for fecha, d in dias.items():
+            valor = Decimal(str(d["valor"]))
+            dia_nombre = d["dia"]
+            folio_dia = f"{folio}-D{fecha.day:02d}"
+            obj = existentes_map.get((pago.pk, fecha))
+            if obj is None:
+                nuevos_dias.append(PagoDiario(
+                    pago=pago, fecha=fecha, dia=dia_nombre, valor=valor, folio=folio_dia,
+                ))
+            else:
+                cambiado = False
+                if obj.valor != valor:
+                    obj.valor = valor
+                    cambiado = True
+                if not obj.dia:
+                    obj.dia = dia_nombre
+                    cambiado = True
+                if not obj.folio:
+                    obj.folio = folio_dia
+                    cambiado = True
+                if cambiado:
+                    a_actualizar_dias.append(obj)
+
+    if nuevos_dias:
+        PagoDiario.objects.bulk_create(nuevos_dias, batch_size=2000)
+    if a_actualizar_dias:
+        PagoDiario.objects.bulk_update(a_actualizar_dias, ["valor", "dia", "folio"], batch_size=2000)
 
 
 def importar_excel_desde_bytes(contenido, tipo_default=None):

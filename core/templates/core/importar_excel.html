@@ -4,9 +4,12 @@
 <div class="card card-ancha">
     <h2 class="h2-seccion">Importar pagos desde Excel</h2>
     <p class="parrafo-info">
-        Sube un archivo <strong>.xlsx</strong> con una fila por pago. Las columnas se detectan por nombre
-        (N° Local, Mes, Empresario, RUT, Descripción, Tipo Deuda, Domicilio, Fono, Correo,
-        Periodo, Valor, Fecha Pago, Folio). Si el folio ya existe, el registro se actualiza.
+        Sube un archivo <strong>.xlsx</strong>. Se detectan las columnas por nombre (N° Local, Mes, Año,
+        Empresario, RUT, Descripción, Tipo Deuda, Domicilio, Fono, Correo, Periodo, Valor, Fecha Pago, Folio).
+        Si el folio ya existe, el registro se actualiza.<br>
+        Si la hoja trae <strong>columnas de días</strong> (por ejemplo <em>1, 2, 3…31</em> o <em>Día 1, Día 2…</em>),
+        cada valor diario se guarda tal cual viene del Excel y el <strong>total del mes</strong> pasa a ser la suma de esos días.
+        Cada hoja corresponde a un <strong>tipo de local</strong> según su nombre.
     </p>
     <form method="post" enctype="multipart/form-data">
         {% csrf_token %}

@@ -6,7 +6,8 @@ from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
-from django.db.models import Max, Min, Sum
+from django.db.models import Count, Max, Min, Sum
+from django.db.models.functions import Coalesce
 from django.shortcuts import redirect, render
 from django.http import HttpResponse, JsonResponse
 
@@ -53,6 +54,124 @@ def _mes_num(valor):
         if nombre_mes.lower() == buscado:
             return indice + 1
     return None
+
+
+def _total_mostrado(pago):
+    """Total del mes: suma de los días si hay desglose; si no, el valor guardado."""
+    total = pago.total_dias if hasattr(pago, "total_dias") else sum(
+        (d.valor for d in pago.detalles_diarios.all()), Decimal("0")
+    )
+    if pago.n_dias if hasattr(pago, "n_dias") else None:
+        return total
+    return pago.valor
+
+
+def _desglose_pago(pago, tipo):
+    """Devuelve la lista de días hábiles del mes del pago con sus valores."""
+    ultimo_dia = monthrange(pago.fecha.year, pago.fecha.month)[1]
+    por_fecha = {d.fecha: d for d in pago.detalles_diarios.all()}
+    desglose = []
+    for dia in range(1, ultimo_dia + 1):
+        dia_fecha = date(pago.fecha.year, pago.fecha.month, dia)
+        if not dia_habil_para(tipo, dia_fecha):
+            continue
+        d = por_fecha.get(dia_fecha)
+        desglose.append({
+            "id": d.id if d else None,
+            "dia_nombre": DIAS_SEMANA_ES[dia_fecha.weekday()],
+            "dia_num": dia_fecha.day,
+            "fecha": dia_fecha.isoformat(),
+            "folio": (d.folio or "") if d else "",
+            "valor": "{:.2f}".format(d.valor if d else Decimal("0")),
+        })
+    return desglose
+
+
+@login_required
+def desglose_pago(request, tipo, folio):
+    """Devuelve JSON con los días de un mes para edición (se cargan al abrir el mes)."""
+    if request.user.perfil.rol == "administrador":
+        return JsonResponse({"ok": False, "error": "Sin permisos"}, status=403)
+    try:
+        pago = Pago.objects.select_related("local").get(folio=folio)
+    except Pago.DoesNotExist:
+        return JsonResponse({"ok": False, "error": "Pago no encontrado"}, status=404)
+    if pago.local.tipo != tipo:
+        tipo = pago.local.tipo
+    total = sum((d.valor for d in pago.detalles_diarios.all()), Decimal("0"))
+    return JsonResponse({
+        "ok": True,
+        "folio": pago.folio,
+        "mes": pago.mes,
+        "anio": pago.fecha.year,
+        "local": pago.local.numero,
+        "empresario": pago.empresario,
+        "rut": pago.rut,
+        "tipo": tipo,
+        "total": "{:.2f}".format(total),
+        "dias": _desglose_pago(pago, tipo),
+    })
+
+
+def _construir_arbol(pagos):
+    """Agrupa los pagos en Empresario -> N° local -> Año -> Mes con totales por nivel."""
+    emp_orden = []
+    emp_map = {}
+    for p in pagos:
+        nombre = (p.empresario or "").strip() or "(Sin empresario)"
+        emp = emp_map.get(nombre)
+        if emp is None:
+            emp = {"nombre": nombre, "rut": "", "total": Decimal("0"), "locales": [], "_loc": {}}
+            emp_map[nombre] = emp
+            emp_orden.append(emp)
+        if not emp["rut"] and p.rut:
+            emp["rut"] = p.rut
+
+        numero = p.local.numero
+        loc = emp["_loc"].get(numero)
+        if loc is None:
+            loc = {"numero": numero, "tipo": p.local.get_tipo_display(), "anios": [], "_an": {}}
+            emp["_loc"][numero] = loc
+            emp["locales"].append(loc)
+
+        ag = loc["_an"].get(p.fecha.year)
+        if ag is None:
+            ag = {"anio": p.fecha.year, "meses": [], "_mes": {}}
+            loc["_an"][p.fecha.year] = ag
+            loc["anios"].append(ag)
+
+        mes = ag["_mes"].get(p.fecha.month)
+        if mes is None:
+            total = _total_mostrado(p)
+            mes = {
+                "mes_num": p.fecha.month,
+                "mes": p.mes or MESES_ES[p.fecha.month - 1],
+                "anio": p.fecha.year,
+                "fecha": p.fecha,
+                "local_numero": numero,
+                "folio": p.folio,
+                "empresario": nombre,
+                "fecha_pago": p.fecha_pago,
+                "tipo_deuda": p.tipo_deuda,
+                "periodo": p.periodo,
+                "n_dias": p.n_dias,
+                "total": total,
+            }
+            ag["_mes"][p.fecha.month] = mes
+            ag["meses"].append(mes)
+            emp["total"] += total
+
+    emp_orden.sort(key=lambda e: e["nombre"].lower())
+    for emp in emp_orden:
+        emp["locales"].sort(
+            key=lambda l: (0, int(l["numero"])) if l["numero"].isdigit() else (1, l["numero"])
+        )
+        for loc in emp["locales"]:
+            loc["anios"].sort(key=lambda a: a["anio"], reverse=True)
+            for ag in loc["anios"]:
+                ag["meses"].sort(key=lambda m: m["mes_num"])
+        emp.pop("_loc", None)
+    return emp_orden
 
 
 def registrar_historial(request, accion, tipo, folio, local_numero, monto):
@@ -128,7 +247,10 @@ def pagos(request, tipo="local"):
         pagos_lista = pagos_lista.filter(fecha__year__gte=int(anio_desde))
     if anio_hasta.isdigit():
         pagos_lista = pagos_lista.filter(fecha__year__lte=int(anio_hasta))
-    pagos_lista = pagos_lista.select_related("local").order_by("-fecha")
+    pagos_lista = pagos_lista.select_related("local").annotate(
+        n_dias=Count("detalles_diarios", distinct=True),
+        total_dias=Coalesce(Sum("detalles_diarios__valor"), Decimal("0")),
+    ).order_by("-fecha")
 
     años_disponibles = (
         Pago.objects.filter(local__tipo=tipo)
@@ -151,27 +273,7 @@ def pagos(request, tipo="local"):
     es_caja = request.user.perfil.rol == "caja"
     es_admin = request.user.perfil.rol == "administrador"
 
-    # Precalcular desglose por día: solo los días que pertenecen al mes del pago
-    for p in pagos_lista:
-        detalles = list(p.detalles_diarios.all())
-        por_fecha = {d.fecha: d for d in detalles}
-        ultimo_dia = monthrange(p.fecha.year, p.fecha.month)[1]
-        desglose = []
-        for dia in range(1, ultimo_dia + 1):
-            dia_fecha = date(p.fecha.year, p.fecha.month, dia)
-            if not dia_habil_para(tipo, dia_fecha):
-                continue
-            d = por_fecha.get(dia_fecha)
-            desglose.append({
-                "id": d.id if d else None,
-                "dia_nombre": DIAS_SEMANA_ES[dia_fecha.weekday()],
-                "dia_num": dia_fecha.day,
-                "fecha": dia_fecha.isoformat(),
-                "folio": (d.folio or "") if d else "",
-                "valor": d.valor if d else Decimal("0"),
-            })
-        p.desglose = desglose
-        p.desglose_total = sum((d.valor for d in detalles), Decimal("0"))
+    arbol = _construir_arbol(pagos_lista)
 
     # Valor UTM visible (para el indicador/card): mes del filtro o mes actual
     anio_actual = date.today().year
@@ -187,10 +289,13 @@ def pagos(request, tipo="local"):
         .count()
     )
 
+    total_consulta = sum((e["total"] for e in arbol), Decimal("0"))
+
     context = {
         "tipos": TIPOS_LOCAL,
         "tipo_actual": tipo,
-        "pagos": pagos_lista,
+        "arbol": arbol,
+        "total_consulta": total_consulta,
         "numero_filtro": numero_filtro,
         "mes_desde": mes_desde,
         "mes_hasta": mes_hasta,
@@ -474,7 +579,7 @@ def abonar_pago(request, tipo, folio):
         if accion == "eliminar":
             fecha_dia = _fecha_dia()
             PagoDiario.objects.filter(pago=pago, fecha=fecha_dia).delete()
-            return JsonResponse({"ok": True, "total": _total_pago(pago)})
+            return JsonResponse({"ok": True, "total": str(_sincronizar_total(pago))})
 
         # accion == guardar
         fecha_dia = _fecha_dia()
@@ -506,7 +611,7 @@ def abonar_pago(request, tipo, folio):
             fecha=fecha_dia,
             defaults={"dia": dia_nombre, "valor": valor_dec, "folio": folio_dia or None},
         )
-        return JsonResponse({"ok": True, "total": _total_pago(pago)})
+        return JsonResponse({"ok": True, "total": str(_sincronizar_total(pago))})
     except (ValueError, InvalidOperation):
         return JsonResponse({"ok": False, "error": "Datos inválidos"}, status=400)
 
@@ -517,6 +622,18 @@ def _total_pago(pago):
         Decimal("0"),
     )
     return str(total)
+
+
+def _sincronizar_total(pago):
+    """Deja el total del mes igual a la suma de sus días (los días son la fuente de verdad)."""
+    total = sum(
+        (d.valor for d in pago.detalles_diarios.all()),
+        Decimal("0"),
+    )
+    if pago.valor != total:
+        pago.valor = total
+        pago.save(update_fields=["valor"])
+    return total
 
 
 def repartir_valor_dias(pago, tipo, fecha, valor):
@@ -617,7 +734,6 @@ def editar_pago(request, tipo, folio):
                 raise ValueError(f"Ya existe un registro con el folio {folio_nuevo}.")
 
             fecha_anterior = pago.fecha
-            valor_anterior = pago.valor
             local_obj = pago.local
             if numero != pago.local.numero:
                 otro = Local.objects.filter(numero=numero).first()
@@ -647,9 +763,11 @@ def editar_pago(request, tipo, folio):
             pago.fecha_pago = fecha_pago_obj
             pago.save()
 
-            if (fecha_anterior.year, fecha_anterior.month) != (fecha_obj.year, fecha_obj.month) or \
-               valor_anterior != valor_dec:
+            mes_cambio = (fecha_anterior.year, fecha_anterior.month) != (fecha_obj.year, fecha_obj.month)
+            if mes_cambio or not pago.detalles_diarios.exists():
                 repartir_valor_dias(pago, tipo, fecha_obj, valor_dec)
+            else:
+                _sincronizar_total(pago)
             if viejo_local != local_obj and not viejo_local.pagos.exists():
                 viejo_local.ocupado = False
                 viejo_local.save()
