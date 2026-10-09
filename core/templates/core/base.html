@@ -245,5 +245,125 @@
             </div>
         </main>
     </div>
+
+<script>
+(function () {
+    function re(patron) {
+        return function (ch) { return patron.test(ch); };
+    }
+
+    var REGLAS = {
+        numero: re(/[0-9]/),
+        numero_local: re(/[0-9\-/]/),
+        nombres: re(/[A-Za-zÁÉÍÓÚÜÑáéíóúüñ .'\-]/),
+        palabras: re(/[A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9 .,()\-/]/),
+        texto: re(/[A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9 .,()\-/]/),
+        domicilio: re(/[A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9 .,#\-/]/),
+        rut: re(/[0-9Kk.\-]/),
+        fono: re(/[0-9+\-() ]/),
+        correo: re(/[A-Za-z0-9@._+\-]/),
+        mes: re(/[A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9 ]/),
+        mes_anio: re(/[A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9 ]/),
+        folio: re(/[A-Za-z0-9\-_.]/),
+        username: re(/[A-Za-z0-9._\-]/),
+        clp: re(/[0-9.,]/)
+    };
+
+    var POR_CAMPO = {
+        numero: "numero_local",
+        mes: "mes",
+        empresario: "nombres",
+        rut: "rut",
+        descripcion: "texto",
+        valor: "clp",
+        tipo_deuda: "palabras",
+        domicilio: "domicilio",
+        fono: "fono",
+        correo: "correo",
+        periodo: "mes_anio",
+        folio: "folio"
+    };
+
+    function reglaPara(t) {
+        var nombre = null;
+        if (t.hasAttribute("data-validar")) {
+            nombre = t.getAttribute("data-validar");
+        } else {
+            var campo = t.getAttribute("data-campo");
+            var cls = t.className || "";
+            var nombre_input = t.name || "";
+            if (campo) {
+                if (campo === "fecha" || campo === "fecha_pago") return null;
+                nombre = POR_CAMPO[campo] || null;
+            } else if (cls.indexOf("dia-nombre-input") !== -1) {
+                nombre = "nombres";
+            } else if (cls.indexOf("valor-dia") !== -1) {
+                nombre = "clp";
+            } else if (cls.indexOf("folio-dia-input") !== -1) {
+                nombre = "folio";
+            } else if (nombre_input === "username") {
+                nombre = "username";
+            } else if (nombre_input === "numero") {
+                nombre = "numero_local";
+            } else if (nombre_input === "folio") {
+                nombre = "folio";
+            } else if (nombre_input === "empresario") {
+                nombre = "nombres";
+            } else if (nombre_input === "rut") {
+                nombre = "rut";
+            } else if (nombre_input === "descripcion") {
+                nombre = "texto";
+            } else if (nombre_input === "tipo_deuda") {
+                nombre = "palabras";
+            } else if (nombre_input === "domicilio") {
+                nombre = "domicilio";
+            } else if (nombre_input === "fono" || nombre_input === "telefono") {
+                nombre = "fono";
+            } else if (nombre_input === "correo" || nombre_input === "email") {
+                nombre = "correo";
+            } else if (nombre_input === "periodo") {
+                nombre = "mes_anio";
+            } else if (nombre_input === "mes_desde" || nombre_input === "mes_hasta") {
+                nombre = "mes";
+            } else if (nombre_input === "anio_desde" || nombre_input === "anio_hasta") {
+                nombre = "numero";
+            } else if (nombre_input === "valor") {
+                nombre = "clp";
+            }
+        }
+        return nombre ? REGLAS[nombre] || null : null;
+    }
+
+    document.addEventListener("input", function (e) {
+        var t = e.target;
+        if (!t || t.tagName !== "INPUT") return;
+        if (t.disabled || t.readOnly) return;
+        if (t.type === "date" || t.type === "checkbox" || t.type === "file" || t.type === "password") return;
+        var fn = reglaPara(t);
+        if (!fn || t.type === "number") return;
+        var valor = t.value || "";
+        var limpio = "";
+        for (var i = 0; i < valor.length; i++) {
+            if (fn(valor[i])) limpio += valor[i];
+        }
+        if (limpio !== valor) t.value = limpio;
+    });
+
+    var TECLAS_NUM = {
+        "Tab": 1, "Backspace": 1, "Delete": 1, "Enter": 1, "Escape": 1,
+        "ArrowLeft": 1, "ArrowRight": 1, "ArrowUp": 1, "ArrowDown": 1,
+        "Home": 1, "End": 1
+    };
+
+    document.addEventListener("keydown", function (e) {
+        var t = e.target;
+        if (!t || t.tagName !== "INPUT" || t.type !== "number") return;
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+        if (TECLAS_NUM[e.key]) return;
+        if (e.key.length > 1) return;
+        if (!/[0-9.]/.test(e.key)) e.preventDefault();
+    });
+})();
+</script>
 </body>
 </html>

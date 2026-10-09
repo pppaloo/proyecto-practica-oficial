@@ -327,11 +327,24 @@ def importar_excel_pagos(request):
         else:
             for msg in r.get("fila", [])[:8]:
                 messages.warning(request, msg)
+            hojas_procesadas = r.get("hojas_procesadas") or []
+            hojas_omitidas = r.get("hojas_omitidas") or []
+            if not hojas_procesadas:
+                messages.error(
+                    request,
+                    "No se encontró ninguna hoja con un tipo de local conocido"
+                    + (f" (se omitieron: {', '.join(hojas_omitidas)})." if hojas_omitidas else "."),
+                )
+                return redirect("pagos")
             messages.success(
                 request,
-                f"Importación terminada: {r['creados']} creados, {r['actualizados']} actualizados, "
+                f"Importación terminada. Hojas procesadas: {len(hojas_procesadas)}"
+                f" ({', '.join(hojas_procesadas)}). "
+                f"{r['creados']} creados, {r['actualizados']} actualizados, "
                 f"{r['sin_cambios']} sin cambios, {r['errores']} errores.",
             )
+            if hojas_omitidas:
+                messages.warning(request, "Hojas omitidas (no son un tipo de local): " + ", ".join(hojas_omitidas))
             if r["errores"]:
                 messages.error(request, f"Hubo {r['errores']} errores; revisa los avisos.")
         return redirect("pagos")

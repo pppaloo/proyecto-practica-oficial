@@ -1,9 +1,8 @@
+import re
 import unicodedata
 from datetime import date, datetime
 
-from django.db import transaction
-
-from core.models import Local, Pago
+from core.models import Local, Pago, TIPOS_LOCAL
 
 
 MESES_ES = [
@@ -66,16 +65,36 @@ def parsear_mes(mes):
     return mes
 
 
+def _clave(nombre):
+    """Normaliza un nombre para comparar: 'Centro Comercial' -> 'centrocomercial'."""
+    if not nombre:
+        return ""
+    return re.sub(r"[^a-z0-9]", "", norm(nombre))
+
+
+def tipo_desde_hoja(nombre_hoja):
+    """Devuelve el tipo de local según el nombre de la hoja, o None si no coincide."""
+    clave = _clave(nombre_hoja)
+    if not clave:
+        return None
+    for valor, _nombre in TIPOS_LOCAL:
+        if clave == _clave(valor):
+            return valor
+    return None
+
+
 def importar_workbook(ws, tipo_default=None):
-    """Lee una hoja de Excel y crea/actualiza Pagos. Devuelve dict de contador."""
+    """Lee una hoja de Excel y crea/actualiza Pagos por lotes. Devuelve dict de contador."""
     contador = {"creados": 0, "actualizados": 0, "sin_cambios": 0, "errores": 0, "fila": []}
 
-    filas = list(ws.iter_rows(values_only=True))
-    if not filas:
+    iterador = ws.iter_rows(values_only=True)
+    try:
+        primera = next(iterador)
+    except StopIteration:
         contador["error"] = "El Excel está vacío."
         return contador
 
-    headers = [nombre_columa_limpio(c) for c in filas[0]]
+    headers = [nombre_columa_limpio(c) for c in primera]
     idx = {
         "numero": next((i for i, h in enumerate(headers) if "numero" in h and "local" not in h and "folio" not in h), None),
         "local": next((i for i, h in enumerate(headers) if "local" in h and "numero" not in h), None),
@@ -102,53 +121,72 @@ def importar_workbook(ws, tipo_default=None):
         contador["error"] = "No se encontró la columna 'N° Local'. Cabeceras: %s" % [h or "?" for h in headers]
         return contador
 
-    for num_fila, fila in enumerate(filas[1:], start=2):
-        try:
-            numero_celda = fila[idx["numero"] if idx["numero"] is not None else idx["local"]]
-            numero = str(numero_celda).strip() if numero_celda is not None else ""
-            if not numero:
-                if not any(c not in (None, "") for c in fila):
-                    continue
-                contador["errores"] += 1
-                contador["fila"].append(f"Fila {num_fila}: N° Local vacío, se omitió.")
-                continue
+    locales = {l.numero: l for l in Local.objects.all()}
+    tamano = 2000
+    lote_rows = []
+    for num_fila, fila in enumerate(iterador, start=2):
+        if not any(c not in (None, "") for c in fila):
+            continue
+        lote_rows.append((num_fila, fila))
+        if len(lote_rows) >= tamano:
+            _procesar_lote(lote_rows, idx, tipo_default, locales, contador)
+            lote_rows = []
+    if lote_rows:
+        _procesar_lote(lote_rows, idx, tipo_default, locales, contador)
 
-            tipo = fila[idx["tipo"]] if idx["tipo"] is not None else None
-            tipo = (str(tipo).strip() if tipo else tipo_default) or "local"
-            local, _ = Local.objects.get_or_create(
-                numero=numero, defaults={"tipo": tipo, "ocupado": True}
-            )
-            if tipo and local.tipo != tipo:
-                local.tipo = tipo
-                local.save()
+    return contador
 
-            fecha_pago_obj = parsear_fecha(fila[idx["fecha_pago"]] if idx["fecha_pago"] is not None else None)
-            fecha_obj = parsear_fecha(fila[idx["fecha"]] if idx["fecha"] is not None else None)
-            if fecha_obj is None and fecha_pago_obj is not None:
-                fecha_obj = fecha_pago_obj
-            if fecha_obj is None:
-                anio = str(fila[idx["anio"]]).strip() if idx["anio"] is not None and fila[idx["anio"]] else None
-                if anio and anio.isdigit():
-                    fecha_obj = date(int(anio), 1, 1)
 
-            mes_salida = parsear_mes(fila[idx["mes"]] if idx["mes"] is not None else None)
-            if not mes_salida and fecha_obj:
-                mes_salida = MESES_ES[fecha_obj.month - 1]
-            periodo = str(fila[idx["periodo"]]).strip() if idx["periodo"] is not None and fila[idx["periodo"]] else ""
-            if not periodo and fecha_obj:
-                periodo = f"{mes_salida} {fecha_obj.year}"
+def _procesar_lote(filas, idx, tipo_default, locales, contador):
+    """Procesa un lote de filas: parsea, crea Locales faltantes y crea/actualiza Pagos en bloque."""
+    filas_parseadas = []
+    for num_fila, fila in filas:
+        numero_celda = fila[idx["numero"] if idx["numero"] is not None else idx["local"]]
+        numero = str(numero_celda).strip() if numero_celda is not None else ""
+        if not numero:
+            contador["errores"] += 1
+            contador["fila"].append(f"Fila {num_fila}: N° Local vacío, se omitió.")
+            continue
 
-            valor = parsear_decimal(fila[idx["valor"]] if idx["valor"] is not None else None)
-            if valor is None:
-                contador["errores"] += 1
-                contador["fila"].append(f"Fila {num_fila}: valor inválido o faltante en local {numero}.")
-                continue
+        tipo = fila[idx["tipo"]] if idx["tipo"] is not None else None
+        tipo = (str(tipo).strip() if tipo else tipo_default) or "local"
 
-            folio = str(fila[idx["folio"]]).strip() if idx["folio"] is not None and fila[idx["folio"]] else ""
-            if not folio and fecha_obj:
-                folio = f"{numero}-{fecha_obj.year}-{fecha_obj.month}"
+        fecha_pago_obj = parsear_fecha(fila[idx["fecha_pago"]] if idx["fecha_pago"] is not None else None)
+        fecha_obj = parsear_fecha(fila[idx["fecha"]] if idx["fecha"] is not None else None)
+        if fecha_obj is None and fecha_pago_obj is not None:
+            fecha_obj = fecha_pago_obj
+        if fecha_obj is None:
+            anio = str(fila[idx["anio"]]).strip() if idx["anio"] is not None and fila[idx["anio"]] else None
+            if anio and anio.isdigit():
+                fecha_obj = date(int(anio), 1, 1)
 
-            datos = {
+        mes_salida = parsear_mes(fila[idx["mes"]] if idx["mes"] is not None else None)
+        if not mes_salida and fecha_obj:
+            mes_salida = MESES_ES[fecha_obj.month - 1]
+        periodo = str(fila[idx["periodo"]]).strip() if idx["periodo"] is not None and fila[idx["periodo"]] else ""
+        if not periodo and fecha_obj:
+            periodo = f"{mes_salida} {fecha_obj.year}"
+
+        valor = parsear_decimal(fila[idx["valor"]] if idx["valor"] is not None else None)
+        if valor is None:
+            contador["errores"] += 1
+            contador["fila"].append(f"Fila {num_fila}: valor inválido o faltante en local {numero}.")
+            continue
+
+        folio = str(fila[idx["folio"]]).strip() if idx["folio"] is not None and fila[idx["folio"]] else ""
+        if not folio and fecha_obj:
+            folio = f"{numero}-{fecha_obj.year}-{fecha_obj.month}"
+        if not folio:
+            contador["errores"] += 1
+            contador["fila"].append(f"Fila {num_fila}: sin folio y sin fecha para generarlo en local {numero}, se omitió.")
+            continue
+
+        filas_parseadas.append({
+            "num_fila": num_fila,
+            "numero": numero,
+            "tipo": tipo,
+            "folio": folio,
+            "datos": {
                 "fecha": fecha_obj,
                 "mes": mes_salida,
                 "empresario": str(fila[idx["empresario"]]).strip() if idx["empresario"] is not None and fila[idx["empresario"]] else "",
@@ -161,36 +199,81 @@ def importar_workbook(ws, tipo_default=None):
                 "periodo": periodo,
                 "valor": valor,
                 "fecha_pago": fecha_pago_obj,
-            }
+            },
+        })
 
-            pago = Pago.objects.filter(folio=folio).first() if folio else None
-            if pago is None:
-                Pago.objects.create(local=local, folio=folio, **datos)
-                contador["creados"] += 1
-            else:
-                cambiado = False
-                for campo, valor_campo in datos.items():
-                    if getattr(pago, campo) != valor_campo:
-                        setattr(pago, campo, valor_campo)
-                        cambiado = True
-                if pago.local != local:
-                    pago.local = local
-                    cambiado = True
-                if cambiado:
-                    pago.save()
-                    contador["actualizados"] += 1
-                else:
-                    contador["sin_cambios"] += 1
+    if not filas_parseadas:
+        return
 
-        except Exception as exc:
-            contador["errores"] += 1
-            contador["fila"].append(f"Fila {num_fila}: error {exc}")
+    numeros = {r["numero"] for r in filas_parseadas}
+    for n in numeros:
+        if n in locales:
+            continue
+        tipo_nuevo = next((r["tipo"] for r in filas_parseadas if r["numero"] == n), tipo_default) or "local"
+        locales[n] = Local.objects.create(numero=n, tipo=tipo_nuevo, ocupado=True)
 
-    return contador
+    folios = {r["folio"] for r in filas_parseadas}
+    pagos_existentes = {
+        p.folio: p for p in Pago.objects.filter(folio__in=folios)
+    }
+
+    nuevos = []
+    a_actualizar = []
+    memo_lote = {}
+
+    for r in filas_parseadas:
+        folio = r["folio"]
+        local = locales[r["numero"]]
+        if r["tipo"] and local.tipo != r["tipo"]:
+            local.tipo = r["tipo"]
+            local.save()
+
+        pago = pagos_existentes.get(folio)
+        if pago is None and folio in memo_lote:
+            pago = memo_lote[folio]
+            for campo, valor in r["datos"].items():
+                setattr(pago, campo, valor)
+            pago.local = local
+            continue
+
+        if pago is None:
+            pago = Pago(local=local, folio=folio, **r["datos"])
+            memo_lote[folio] = pago
+            nuevos.append(pago)
+            contador["creados"] += 1
+            continue
+
+        cambiado = False
+        for campo, valor_campo in r["datos"].items():
+            if getattr(pago, campo) != valor_campo:
+                setattr(pago, campo, valor_campo)
+                cambiado = True
+        if pago.local != local:
+            pago.local = local
+            cambiado = True
+        if cambiado:
+            a_actualizar.append(pago)
+            contador["actualizados"] += 1
+        else:
+            contador["sin_cambios"] += 1
+
+    if nuevos:
+        Pago.objects.bulk_create(nuevos)
+    if a_actualizar:
+        Pago.objects.bulk_update(
+            a_actualizar,
+            ["fecha", "mes", "empresario", "rut", "descripcion", "tipo_deuda",
+             "domicilio", "fono", "correo", "periodo", "valor", "fecha_pago", "local"],
+        )
 
 
 def importar_excel_desde_bytes(contenido, tipo_default=None):
-    """Recibe bytes de un .xlsx y devuelve el dict de contador (o mensaje de error)."""
+    """Recibe bytes de un .xlsx y devuelve el dict de contador (o mensaje de error).
+
+    Lee todas las hojas: el tipo de local se deduce del nombre de la hoja
+    ('Centro Comercial' -> centro_comercial, 'Lote 6' -> lote6, etc.).
+    Hojas cuyo nombre no coincide con ningún tipo se omiten.
+    """
     from django.core.files.uploadedfile import InMemoryUploadedFile
 
     if isinstance(contenido, InMemoryUploadedFile):
@@ -200,9 +283,32 @@ def importar_excel_desde_bytes(contenido, tipo_default=None):
     from openpyxl import load_workbook
 
     try:
-        wb = load_workbook(BytesIO(contenido), data_only=True)
+        wb = load_workbook(BytesIO(contenido), data_only=True, read_only=True)
     except Exception as exc:
         return {"error": f"No se pudo leer el archivo como Excel: {exc}"}
 
-    ws = wb.worksheets[0]
-    return importar_workbook(ws, tipo_default)
+    contador = {"creados": 0, "actualizados": 0, "sin_cambios": 0, "errores": 0, "fila": []}
+    hojas_procesadas = []
+    hojas_omitidas = []
+
+    try:
+        for ws in wb.worksheets:
+            tipo = tipo_desde_hoja(ws.title)
+            if tipo is None and tipo_default:
+                tipo = tipo_default
+            if tipo is None:
+                hojas_omitidas.append(ws.title)
+                continue
+            r = importar_workbook(ws, tipo)
+            if r.get("error"):
+                return {"error": f"{ws.title}: {r['error']}"}
+            for k in ("creados", "actualizados", "sin_cambios", "errores"):
+                contador[k] += r[k]
+            contador["fila"].extend(r["fila"])
+            hojas_procesadas.append(ws.title)
+    finally:
+        wb.close()
+
+    contador["hojas_procesadas"] = hojas_procesadas
+    contador["hojas_omitidas"] = hojas_omitidas
+    return contador
