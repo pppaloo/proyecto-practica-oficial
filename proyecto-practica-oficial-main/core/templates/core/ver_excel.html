@@ -1,0 +1,50 @@
+{% extends "core/base.html" %}
+{% block title %}Ver Excel - Vega Los Ángeles{% endblock %}
+{% block content %}
+<div class="card card-ancha">
+    <h2 class="h2-seccion">Ver datos de Excel</h2>
+    <p class="parrafo-info">
+        Sube un archivo <strong>.xlsx</strong> para ver todos sus datos en una tabla.
+    </p>
+    <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        <div class="form-grid">
+            <div class="form-group">
+                <label>Archivo Excel *</label>
+                <input type="file" name="archivo" accept=".xlsx" required>
+            </div>
+        </div>
+        <div class="acciones mt18">
+            <button type="submit" class="btn btn-primary">Ver datos</button>
+            <a class="btn btn-outline" href="{% url 'pagos' %}">Volver</a>
+        </div>
+    </form>
+
+    {% if filas %}
+    <hr class="separador">
+    <h3 class="h3-seccion">Datos del Excel ({{ filas|length }} filas)</h3>
+    <div class="tabla-contenedor">
+        <table class="tabla-datos">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    {% for col in filas.0 %}
+                    <th>Col {{ forloop.counter }}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for fila in filas %}
+                <tr>
+                    <td><strong>{{ forloop.counter }}</strong></td>
+                    {% for celda in fila %}
+                    <td>{{ celda|default:"—" }}</td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

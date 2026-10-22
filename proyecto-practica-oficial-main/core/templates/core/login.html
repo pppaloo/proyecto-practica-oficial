@@ -1,0 +1,21 @@
+{% extends "core/base.html" %}
+{% block title %}Iniciar sesión - Vega Los Ángeles{% endblock %}
+{% block content %}
+<div class="login-shell">
+    <div class="card card-centrada">
+        <h2 class="h2-seccion">Centro Comercial Vega</h2>
+        <form method="post" class="form-columna">
+            {% csrf_token %}
+            <div class="form-group">
+                <label>Usuario</label>
+                <input type="text" name="username" required autofocus>
+            </div>
+            <div class="form-group">
+                <label>Contraseña</label>
+                <input type="password" name="password" required>
+            </div>
+            <button class="btn btn-primary btn-mt8" type="submit">Ingresar</button>
+        </form>
+    </div>
+</div>
+{% endblock %}

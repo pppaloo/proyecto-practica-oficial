@@ -1,0 +1,33 @@
+"""practicavega URL Configuration"""
+from django.contrib import admin
+from django.urls import path
+from django.conf import settings
+from django.conf.urls.static import static
+
+from core import views
+
+urlpatterns = [
+    path('admin/', admin.site.urls),
+    path('', views.login_view, name='login'),
+    path('login/', views.login_view, name='login2'),
+    path('logout/', views.logout_view, name='logout'),
+    path('inicio/', views.inicio, name='inicio'),
+    path('pagos/', views.pagos, name='pagos'),
+    path('pagos/generar-deuda/', views.generar_deuda, name='generar_deuda'),
+    path('pagos/importar-excel/', views.importar_excel_pagos, name='importar_excel_pagos'),
+    path('ver-excel/', views.ver_excel, name='ver_excel'),
+    path('pagos/<str:tipo>/', views.pagos, name='pagos_tipo'),
+    path('pagos/<str:tipo>/agregar/', views.agregar_pago, name='agregar_pago'),
+    path('pagos/<str:tipo>/abonar/<str:folio>/', views.abonar_pago, name='abonar_pago'),
+    path('pagos/<str:tipo>/editar/<str:folio>/', views.editar_pago, name='editar_pago'),
+    path('pagos/<str:tipo>/eliminar/<str:folio>/', views.eliminar_pago, name='eliminar_pago'),
+    path('reportes/', views.reportes, name='reportes'),
+    path('aplicar-utm/', views.aplicar_utm, name='aplicar_utm'),
+    path('guardar-utm/', views.guardar_utm, name='guardar_utm'),
+    path('locales-desocupados/', views.locales_desocupados, name='locales_desocupados'),
+    path('historial/', views.historial, name='historial'),
+    path('usuarios/', views.usuarios_admin, name='usuarios_admin'),
+]
+
+if settings.DEBUG:
+    urlpatterns += static(settings.STATIC_URL, document_root=settings.BASE_DIR)
