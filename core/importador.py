@@ -2,6 +2,7 @@ import re
 import unicodedata
 from datetime import date, datetime
 from decimal import Decimal
+from io import BytesIO
 
 from core.feriados import dia_habil_para
 from core.models import Local, Pago, PagoDiario, TIPOS_LOCAL
@@ -175,7 +176,7 @@ def importar_workbook(ws, tipo_default=None):
         if d is not None:
             dias_columnas.append((i, d))
 
-    locales = {l.numero: l for l in Local.objects.all()}
+    locales = {(l.tipo, l.numero): l for l in Local.objects.all()}
     tamano = 2000
     lote_rows = []
     for num_fila, fila in enumerate(iterador, start=2):
@@ -289,12 +290,13 @@ def _procesar_lote(filas, idx, dias_columnas, tipo_default, locales, contador):
     if not filas_parseadas:
         return
 
-    numeros = {r["numero"] for r in filas_parseadas}
-    for n in numeros:
-        if n in locales:
+    claves = {(r["tipo"], r["numero"]) for r in filas_parseadas}
+    for tipo_nuevo, n in claves:
+        if (tipo_nuevo, n) in locales:
             continue
-        tipo_nuevo = next((r["tipo"] for r in filas_parseadas if r["numero"] == n), tipo_default) or "local"
-        locales[n] = Local.objects.create(numero=n, tipo=tipo_nuevo, ocupado=True)
+        locales[(tipo_nuevo, n)] = Local.objects.create(
+            numero=n, tipo=tipo_nuevo, ocupado=True
+        )
 
     folios = {r["folio"] for r in filas_parseadas}
     pagos_existentes = {
@@ -308,10 +310,7 @@ def _procesar_lote(filas, idx, dias_columnas, tipo_default, locales, contador):
 
     for r in filas_parseadas:
         folio = r["folio"]
-        local = locales[r["numero"]]
-        if r["tipo"] and local.tipo != r["tipo"]:
-            local.tipo = r["tipo"]
-            local.save()
+        local = locales[(r["tipo"], r["numero"])]
 
         if r["dias"]:
             destino = dias_por_folio.setdefault(folio, {})
@@ -405,32 +404,100 @@ def _guardar_dias_lote(dias_por_folio):
         PagoDiario.objects.bulk_update(a_actualizar_dias, ["valor", "dia", "folio"], batch_size=2000)
 
 
-def importar_excel_desde_bytes(contenido, tipo_default=None):
-    """Recibe bytes de un .xlsx y devuelve el dict de contador (o mensaje de error).
+class _HojaXLSX:
+    def __init__(self, ws):
+        self.title = ws.title
+        self._ws = ws
 
-    Lee todas las hojas: el tipo de local se deduce del nombre de la hoja
-    ('Centro Comercial' -> centro_comercial, 'Lote 6' -> lote6, etc.).
-    Hojas cuyo nombre no coincide con ningún tipo se omiten.
-    """
+    def iter_rows(self, values_only=True):
+        return self._ws.iter_rows(values_only=values_only)
+
+
+class _HojaXLS:
+    def __init__(self, sheet, nombre, datemode):
+        self.title = nombre
+        self._sheet = sheet
+        self._datemode = datemode
+
+    def iter_rows(self, values_only=True):
+        if not values_only:
+            return []
+        import xlrd
+
+        for row in range(self._sheet.nrows):
+            valores = self._sheet.row_values(row)
+            tipos = self._sheet.row_types(row)
+            for i, tipo in enumerate(tipos):
+                if tipo == xlrd.XL_CELL_DATE:
+                    try:
+                        valores[i] = xlrd.xldate.xldate_as_datetime(valores[i], self._datemode)
+                    except Exception:
+                        pass
+                elif tipo == xlrd.XL_CELL_NUMBER:
+                    v = valores[i]
+                    if isinstance(v, float) and v.is_integer():
+                        valores[i] = int(v)
+            yield valores
+
+
+def _leer_excel_bytes(contenido):
     from django.core.files.uploadedfile import InMemoryUploadedFile
 
     if isinstance(contenido, InMemoryUploadedFile):
         contenido = contenido.read()
 
-    from io import BytesIO
-    from openpyxl import load_workbook
-
+    data = BytesIO(contenido)
     try:
-        wb = load_workbook(BytesIO(contenido), data_only=True, read_only=True)
+        from openpyxl import load_workbook
+
+        wb = load_workbook(data, data_only=True, read_only=True)
+        hojas = []
+        for ws in wb.worksheets:
+            hojas.append(_HojaXLSX(ws))
+        return hojas, "xlsx", wb
+    except Exception:
+        pass
+
+    data = BytesIO(contenido)
+    try:
+        import xlrd
+
+        wb = xlrd.open_workbook(file_contents=data.getvalue(), on_demand=True)
+        hojas = []
+        for nombre in wb.sheet_names():
+            hojas.append(_HojaXLS(wb.sheet_by_name(nombre), nombre, wb.datemode))
+        return hojas, "xls", wb
     except Exception as exc:
-        return {"error": f"No se pudo leer el archivo como Excel: {exc}"}
+        return None, None, f"No se pudo leer el archivo como Excel (.xlsx o .xls): {exc}"
+
+
+def _cerrar_excel(formato, wb):
+    try:
+        if formato == "xlsx":
+            wb.close()
+        elif wb is not None:
+            wb.release_resources()
+    except Exception:
+        pass
+
+
+def importar_excel_desde_bytes(contenido, tipo_default=None):
+    """Recibe bytes de un .xlsx o .xls y devuelve el dict de contador (o mensaje de error).
+
+    Lee todas las hojas: el tipo de local se deduce del nombre de la hoja
+    ('Centro Comercial' -> centro_comercial, 'Lote 6' -> lote6, etc.).
+    Hojas cuyo nombre no coincide con ningún tipo se omiten.
+    """
+    hojas, formato, res = _leer_excel_bytes(contenido)
+    if hojas is None:
+        return {"error": res}
 
     contador = {"creados": 0, "actualizados": 0, "sin_cambios": 0, "errores": 0, "fila": []}
     hojas_procesadas = []
     hojas_omitidas = []
 
     try:
-        for ws in wb.worksheets:
+        for ws in hojas:
             tipo = tipo_desde_hoja(ws.title)
             if tipo is None and tipo_default:
                 tipo = tipo_default
@@ -445,7 +512,7 @@ def importar_excel_desde_bytes(contenido, tipo_default=None):
             contador["fila"].extend(r["fila"])
             hojas_procesadas.append(ws.title)
     finally:
-        wb.close()
+        _cerrar_excel(formato, res)
 
     contador["hojas_procesadas"] = hojas_procesadas
     contador["hojas_omitidas"] = hojas_omitidas

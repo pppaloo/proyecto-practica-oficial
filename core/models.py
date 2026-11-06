@@ -36,10 +36,19 @@ class Perfil(models.Model):
 
 
 class Local(models.Model):
-    numero = models.CharField(max_length=10, unique=True)
+    numero = models.CharField(max_length=10)
     tipo = models.CharField(max_length=20, choices=TIPOS_LOCAL)
     cantidad_utm = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("1"))
     ocupado = models.BooleanField(default=True)
+
+    class Meta:
+        # Un mismo número puede existir en distintas zonas (ej: local 42 en
+        # Centro Comercial y en Lote 6). La clave real es número + tipo.
+        unique_together = ("numero", "tipo")
+        indexes = [
+            models.Index(fields=["tipo"]),
+            models.Index(fields=["tipo", "ocupado"]),
+        ]
 
     def __str__(self):
         return f"{self.numero} - {self.get_tipo_display()}"
@@ -61,6 +70,13 @@ class Pago(models.Model):
     fecha_pago = models.DateField(null=True, blank=True)
     folio = models.CharField(max_length=30, unique=True)
 
+    class Meta:
+        indexes = [
+            models.Index(fields=["fecha"]),
+            models.Index(fields=["empresario"]),
+            models.Index(fields=["local", "fecha"]),
+        ]
+
     def __str__(self):
         return f"{self.local.numero} - {self.folio}"
 
@@ -74,6 +90,9 @@ class PagoDiario(models.Model):
 
     class Meta:
         ordering = ["fecha"]
+        indexes = [
+            models.Index(fields=["fecha"]),
+        ]
 
     def __str__(self):
         return f"{self.pago.folio} {self.fecha} - {self.valor}"
@@ -116,3 +135,30 @@ class LoginLog(models.Model):
 
     def __str__(self):
         return f"{self.fecha_hora:%Y-%m-%d %H:%M} - {self.usuario.username} - {self.get_accion_display()}"
+
+
+class LocalMatriz(models.Model):
+    """Ficha maestra de cada local (hoja 'Matriz' del Excel).
+
+    Una fila por local: empresario, RUT, sector, contrato y deuda pendiente.
+    """
+
+    numero = models.CharField(max_length=10)
+    empresario = models.CharField(max_length=200, blank=True, default="")
+    rut = models.CharField(max_length=20, blank=True, default="")
+    descripcion = models.CharField(max_length=50, blank=True, default="")
+    fecha_inicio = models.DateField(null=True, blank=True)
+    fecha_termino = models.DateField(null=True, blank=True)
+    ultimo_pago_2020 = models.DateField(null=True, blank=True)
+    mes_curso = models.DateField(null=True, blank=True)
+    valor_pendiente = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    meses_pendientes = models.IntegerField(default=0)
+    observacion = models.CharField(max_length=300, blank=True, default="")
+
+    class Meta:
+        ordering = ["descripcion", "numero"]
+        verbose_name = "Local (matriz)"
+        verbose_name_plural = "Locales (matriz)"
+
+    def __str__(self):
+        return f"{self.numero} - {self.empresario} ({self.descripcion})"

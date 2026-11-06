@@ -1,0 +1,87 @@
+{% extends "core/base.html" %}
+{% load humanize %}
+{% block title %}Locales - Vega Los Ángeles{% endblock %}
+{% block content %}
+<div class="tabs">
+    {% for valor, nombre in tipos %}
+    <a class="tab {% if valor == tipo_actual %}active{% endif %}" href="{% url 'pagos_tipo' valor %}">{{ nombre }}</a>
+    {% endfor %}
+</div>
+
+<div class="card">
+    <div class="toolbar">
+        <form method="get" class="filtros">
+            <input type="text" name="buscar" value="{{ buscar }}" placeholder="Buscar local, empresario, RUT..." class="filtro-input filtro-buscar" autocomplete="off">
+            <select name="sector" class="filtro-input filtro-sector">
+                <option value="">Todos los sectores</option>
+                {% for s in sectores %}
+                <option value="{{ s }}" {% if s == sector_filtro %}selected{% endif %}>{{ s }}</option>
+                {% endfor %}
+            </select>
+            <button class="btn btn-primary" type="submit">Buscar</button>
+            {% if buscar or sector_filtro %}
+            <a class="btn btn-outline" href="{% url 'pagos_tipo' 'local' %}">Limpiar</a>
+            {% endif %}
+        </form>
+        <a class="btn btn-outline ml-auto" href="{% url 'reportes' %}">Reportes</a>
+    </div>
+
+    <div class="resumen-locales">
+        <span><strong>{{ total_locales }}</strong> locales</span>
+        <span class="texto-verde"><strong>{{ ocupados }}</strong> ocupados</span>
+        <span class="texto-rojo"><strong>{{ desocupados }}</strong> desocupados</span>
+        <span>Deuda pendiente: <strong>${{ total_pendiente|floatformat:0|intcomma }}</strong></span>
+    </div>
+
+    <div class="tabla-scroll">
+        <table class="tabla-locales">
+            <thead>
+                <tr>
+                    <th>Local</th>
+                    <th>Empresario</th>
+                    <th>RUT</th>
+                    <th>Descripción</th>
+                    <th>Inicio contrato</th>
+                    <th>Término contrato</th>
+                    <th>Último pago 2020</th>
+                    <th>Mes curso</th>
+                    <th class="num">Valor pendiente</th>
+                    <th class="num">Meses pend.</th>
+                    <th>Observación</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for l in locales %}
+                <tr>
+                    <td class="local-num">{{ l.numero }}</td>
+                    <td>{{ l.empresario|default:"—" }}</td>
+                    <td>{{ l.rut|default:"—" }}</td>
+                    <td>{{ l.descripcion|default:"—" }}</td>
+                    <td>{{ l.fecha_inicio|date:"d/m/Y"|default:"—" }}</td>
+                    <td>{{ l.fecha_termino|date:"d/m/Y"|default:"—" }}</td>
+                    <td>{{ l.ultimo_pago_2020|date:"d/m/Y"|default:"—" }}</td>
+                    <td>{{ l.mes_curso|date:"d/m/Y"|default:"—" }}</td>
+                    <td class="num">${{ l.valor_pendiente|floatformat:0|intcomma }}</td>
+                    <td class="num">{{ l.meses_pendientes }}</td>
+                    <td class="obs">{{ l.observacion|default:"—" }}</td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="11" class="vacio">No hay locales que coincidan con la búsqueda.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="paginacion">
+        {% if locales.has_previous %}
+        <a class="btn btn-outline btn-mini" href="?pagina={{ locales.previous_page_number }}{% if buscar %}&amp;buscar={{ buscar|urlencode }}{% endif %}{% if sector_filtro %}&amp;sector={{ sector_filtro|urlencode }}{% endif %}">← Anterior</a>
+        {% endif %}
+        <span class="paginacion-info">Página {{ locales.number }} de {{ locales.paginator.num_pages }} — {{ locales.paginator.count }} locales</span>
+        {% if locales.has_next %}
+        <a class="btn btn-outline btn-mini" href="?pagina={{ locales.next_page_number }}{% if buscar %}&amp;buscar={{ buscar|urlencode }}{% endif %}{% if sector_filtro %}&amp;sector={{ sector_filtro|urlencode }}{% endif %}">Siguiente →</a>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

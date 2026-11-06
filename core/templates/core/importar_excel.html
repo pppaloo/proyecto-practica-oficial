@@ -4,7 +4,7 @@
 <div class="card card-ancha">
     <h2 class="h2-seccion">Importar pagos desde Excel</h2>
     <p class="parrafo-info">
-        Sube un archivo <strong>.xlsx</strong>. Se detectan las columnas por nombre (N° Local, Mes, Año,
+        Sube un archivo <strong>.xlsx</strong> o <strong>.xls</strong> (Excel antiguo). Se detectan las columnas por nombre (N° Local, Mes, Año,
         Empresario, RUT, Descripción, Tipo Deuda, Domicilio, Fono, Correo, Periodo, Valor, Fecha Pago, Folio).
         Si el folio ya existe, el registro se actualiza.<br>
         Si la hoja trae <strong>columnas de días</strong> (por ejemplo <em>1, 2, 3…31</em> o <em>Día 1, Día 2…</em>),
@@ -16,7 +16,7 @@
         <div class="form-grid">
             <div class="form-group">
                 <label>Archivo Excel *</label>
-                <input type="file" name="archivo" accept=".xlsx" required>
+                <input type="file" name="archivo" accept=".xlsx,.xls" required>
             </div>
             <div class="form-group">
                 <label>Tipo de local por defecto</label>
@@ -36,7 +36,7 @@
     <hr class="separador">
     <p class="nota-term">
         También se puede importar desde la terminal:
-        <code class="codigo-term">python manage.py importar_excel archivo.xlsx</code>
+        <code class="codigo-term">python manage.py importar_excel archivo.xlsx</code> (también sirve <code class="codigo-term">.xls</code>)
     </p>
 </div>
 {% endblock %}

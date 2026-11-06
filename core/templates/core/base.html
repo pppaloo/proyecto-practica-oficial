@@ -87,17 +87,22 @@
         tr.reg-operacion td { background: #f5f5fb; }
         tr.reg-ingreso td { background: #f0f9f4; }
         tr.reg-salida td { background: #fdf6f6; }
-        .desglose-contenedor { padding: 8px 12px; }
-        .desglose-tabla { margin-top: 6px; }
-        .desglose-tabla th { background: #2f6b57; }
-        .desglose-tabla th, .desglose-tabla td { font-size: 11px; padding: 2px 6px; }
+        .desglose-contenedor { padding: 12px 16px; }
+        .desglose-tabla { margin-top: 8px; width: 100%; }
+        .desglose-tabla th { background: #2f6b57; color: #fff; }
+        .desglose-tabla th, .desglose-tabla td { font-size: 14px; padding: 6px 10px; }
         .desglose-contenedor input {
-            font-size: 11px; padding: 2px 6px; border: 1px solid #cdd9d4;
+            font-size: 14px; padding: 4px 8px; border: 1px solid #cdd9d4;
             border-radius: 4px;
         }
-        .desglose-tabla .num-dia { font-size: 11px; font-weight: 600; }
+        .desglose-tabla .num-dia { font-size: 14px; font-weight: 600; }
         .desglose-tabla tbody .desglose-fila-dia:nth-child(odd) td { background: #ffffff; }
         .desglose-tabla tbody .desglose-fila-dia:nth-child(even) td { background: #eef4f1; }
+        .desglose-titulo { color: #1b4d3e; font-size: 16px; font-weight: 700; }
+        .desglose-tabla .dia-nombre-input { width: 120px; }
+        .desglose-tabla .dia-fecha-input { width: 130px; }
+        .desglose-tabla .valor-dia { width: 120px; }
+        .desglose-tabla .folio-dia-input { width: 140px; }
         .utm-card {
             display: flex; align-items: center; justify-content: space-between; gap: 12px;
             background: linear-gradient(135deg, #e8f0ed, #d5e6df);
@@ -188,10 +193,10 @@
         .rol-select { padding: 4px; }
         .monto-input { width: 130px; }
         .desglose-titulo { color: #1b4d3e; font-size: 13px; }
-        .desglose-tabla .dia-nombre-input { width: 90px; }
-        .desglose-tabla .dia-fecha-input { width: 110px; }
-        .desglose-tabla .valor-dia { width: 90px; }
-        .desglose-tabla .folio-dia-input { width: 110px; }
+        .desglose-tabla .dia-nombre-input { width: 120px; }
+        .desglose-tabla .dia-fecha-input { width: 130px; }
+        .desglose-tabla .valor-dia { width: 120px; }
+        .desglose-tabla .folio-dia-input { width: 140px; }
         #desglose-form .valor-dia { width: 140px; }
         .valor-dia-wrap { display: flex; align-items: center; }
         .prefijo-peso { color: #555; margin-right: 4px; font-size: 11px; }
@@ -229,9 +234,33 @@
         .mes-meta { color: #7b8b84; font-size: 12px; }
         .mes-total { margin-left: auto; font-weight: 700; color: #1b4d3e; }
         .btn-mini { font-size: 12px; padding: 4px 10px; }
+        .emp-meta { color: #6b7d76; font-size: 12px; }
+        .cargando-fila { padding: 8px 10px; color: #8a9a93; font-size: 13px; }
+        .anios-tabs { display: inline-flex; gap: 4px; flex-wrap: wrap; align-items: center; }
+        .paginacion { display: flex; align-items: center; gap: 12px; justify-content: center; margin-top: 14px; flex-wrap: wrap; }
+        .paginacion-info { color: #6b7d76; font-size: 13px; }
         .mes-dias[hidden] { display: none; }
         .mes-dias { background: #f7faf9; border-top: 1px solid #e3ece8; }
         .total-mes { font-weight: 700; color: #1b4d3e; }
+        /* --- Ficha de locales (hoja Matriz) --- */
+        .texto-rojo { color: #b33939; font-weight: 700; }
+        .resumen-locales {
+            display: flex; gap: 18px; flex-wrap: wrap; align-items: center;
+            margin-bottom: 14px; font-size: 13px; color: #4b5d56;
+        }
+        .tabla-scroll { overflow-x: auto; }
+        .tabla-locales { font-size: 12.5px; }
+        .tabla-locales th { white-space: nowrap; padding: 9px 6px; }
+        .tabla-locales td { white-space: nowrap; padding: 6px; }
+        .tabla-locales .local-num { font-weight: 700; color: #1b4d3e; }
+        .tabla-locales .num { text-align: right; }
+        .tabla-locales .obs {
+            white-space: normal; min-width: 130px; max-width: 220px;
+            color: #6b7d76; font-size: 12px; line-height: 1.25;
+        }
+        .tabla-locales tbody tr:nth-child(even) td { background: #fafcfb; }
+        .filtro-buscar { width: 240px; }
+        .filtro-sector { width: 170px; }
     </style>
 </head>
 <body>

@@ -6,8 +6,10 @@ from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
-from django.db.models import Count, Max, Min, Sum
+from django.core.cache import cache
+from django.db.models import Count, Exists, Max, Min, OuterRef, Q, Sum
 from django.db.models.functions import Coalesce
+from django.core.paginator import Paginator
 from django.shortcuts import redirect, render
 from django.http import HttpResponse, JsonResponse
 
@@ -23,6 +25,7 @@ from .models import (
     TIPOS_LOCAL,
     Historial,
     Local,
+    LocalMatriz,
     LoginLog,
     Pago,
     PagoDiario,
@@ -42,6 +45,7 @@ DIAS_SEMANA_ES = [
 DIAS_GENERACION = 5
 PREFIJO_FOLIO_GEN = "GEN"
 UTM_BASE = Decimal("66000")
+EMPRESARIOS_POR_PAGINA = 200
 
 
 def _mes_num(valor):
@@ -113,65 +117,82 @@ def desglose_pago(request, tipo, folio):
     })
 
 
-def _construir_arbol(pagos):
-    """Agrupa los pagos en Empresario -> N° local -> Año -> Mes con totales por nivel."""
-    emp_orden = []
+def _filtrar_por_empresario(qs, nombre):
+    """Filtra por empresario respetando el agrupamiento (vacíos -> '(Sin empresario)')."""
+    if nombre == "(Sin empresario)":
+        return qs.filter(Q(empresario="") | Q(empresario__isnull=True))
+    return qs.filter(empresario=nombre)
+
+
+def _construir_empresarios(pagos):
+    """Nivel 1 del árbol (carga inicial): empresario -> total, n° locales y meses."""
     emp_map = {}
+    emp_orden = []
     for p in pagos:
         nombre = (p.empresario or "").strip() or "(Sin empresario)"
         emp = emp_map.get(nombre)
         if emp is None:
-            emp = {"nombre": nombre, "rut": "", "total": Decimal("0"), "locales": [], "_loc": {}}
+            emp = {
+                "nombre": nombre,
+                "rut": "",
+                "total": Decimal("0"),
+                "n_meses": 0,
+                "_locales": set(),
+            }
             emp_map[nombre] = emp
             emp_orden.append(emp)
         if not emp["rut"] and p.rut:
             emp["rut"] = p.rut
+        emp["total"] += _total_mostrado(p)
+        emp["n_meses"] += 1
+        emp["_locales"].add(p.local.numero)
 
-        numero = p.local.numero
-        loc = emp["_loc"].get(numero)
-        if loc is None:
-            loc = {"numero": numero, "tipo": p.local.get_tipo_display(), "anios": [], "_an": {}}
-            emp["_loc"][numero] = loc
-            emp["locales"].append(loc)
-
-        ag = loc["_an"].get(p.fecha.year)
-        if ag is None:
-            ag = {"anio": p.fecha.year, "meses": [], "_mes": {}}
-            loc["_an"][p.fecha.year] = ag
-            loc["anios"].append(ag)
-
-        mes = ag["_mes"].get(p.fecha.month)
-        if mes is None:
-            total = _total_mostrado(p)
-            mes = {
-                "mes_num": p.fecha.month,
-                "mes": p.mes or MESES_ES[p.fecha.month - 1],
-                "anio": p.fecha.year,
-                "fecha": p.fecha,
-                "local_numero": numero,
-                "folio": p.folio,
-                "empresario": nombre,
-                "fecha_pago": p.fecha_pago,
-                "tipo_deuda": p.tipo_deuda,
-                "periodo": p.periodo,
-                "n_dias": p.n_dias,
-                "total": total,
-            }
-            ag["_mes"][p.fecha.month] = mes
-            ag["meses"].append(mes)
-            emp["total"] += total
-
-    emp_orden.sort(key=lambda e: e["nombre"].lower())
     for emp in emp_orden:
-        emp["locales"].sort(
-            key=lambda l: (0, int(l["numero"])) if l["numero"].isdigit() else (1, l["numero"])
-        )
-        for loc in emp["locales"]:
-            loc["anios"].sort(key=lambda a: a["anio"], reverse=True)
-            for ag in loc["anios"]:
-                ag["meses"].sort(key=lambda m: m["mes_num"])
-        emp.pop("_loc", None)
+        emp["n_locales"] = len(emp.pop("_locales"))
+    emp_orden.sort(key=lambda e: e["nombre"].lower())
     return emp_orden
+
+
+def _construir_locales(pagos):
+    """Nivel 2 (carga diferida): local -> meses, para un empresario y año dados."""
+    loc_map = {}
+    loc_orden = []
+    for p in pagos:
+        numero = p.local.numero
+        loc = loc_map.get(numero)
+        if loc is None:
+            loc = {
+                "numero": numero,
+                "tipo": p.local.get_tipo_display(),
+                "total": Decimal("0"),
+                "meses": [],
+            }
+            loc_map[numero] = loc
+            loc_orden.append(loc)
+        total = _total_mostrado(p)
+        loc["total"] += total
+        loc["meses"].append({
+            "mes_num": p.fecha.month,
+            "mes": p.mes or MESES_ES[p.fecha.month - 1],
+            "anio": p.fecha.year,
+            "fecha": p.fecha.isoformat(),
+            "local_numero": numero,
+            "folio": p.folio,
+            "empresario": (p.empresario or "").strip() or "(Sin empresario)",
+            "fecha_pago": p.fecha_pago.strftime("%d/%m/%Y") if p.fecha_pago else "",
+            "tipo_deuda": p.tipo_deuda or "",
+            "periodo": p.periodo or "",
+            "n_dias": p.n_dias,
+            "total": "{:.2f}".format(total),
+        })
+
+    for loc in loc_orden:
+        loc["meses"].sort(key=lambda m: m["mes_num"])
+        loc["total"] = "{:.2f}".format(loc["total"])
+    loc_orden.sort(
+        key=lambda l: (0, int(l["numero"])) if l["numero"].isdigit() else (1, l["numero"])
+    )
+    return loc_orden
 
 
 def registrar_historial(request, accion, tipo, folio, local_numero, monto):
@@ -211,6 +232,63 @@ def inicio(request):
     return redirect("pagos")
 
 
+def _listado_locales(request):
+    """Pestaña "Local": ficha maestra de los 135 locales (hoja Matriz del Excel)."""
+    buscar = request.GET.get("buscar", "").strip()
+    sector = request.GET.get("sector", "").strip()
+
+    locales = list(LocalMatriz.objects.all())
+    if sector:
+        locales = [l for l in locales if l.descripcion == sector]
+    if buscar:
+        q = buscar.lower()
+        locales = [
+            l
+            for l in locales
+            if q in l.numero.lower()
+            or q in l.empresario.lower()
+            or q in l.rut.lower()
+            or q in l.descripcion.lower()
+            or q in (l.observacion or "").lower()
+        ]
+
+    locales.sort(
+        key=lambda l: (
+            l.descripcion.lower(),
+            int(l.numero) if l.numero.isdigit() else 9999,
+            l.numero,
+        )
+    )
+
+    total_pendiente = sum((l.valor_pendiente or Decimal("0")) for l in locales)
+    desocupados = sum(
+        1 for l in locales if "desocupado" in (l.empresario or "").lower()
+    )
+
+    paginator = Paginator(locales, 20)
+    pagina = paginator.get_page(request.GET.get("pagina", 1))
+
+    sectores = (
+        LocalMatriz.objects.values_list("descripcion", flat=True)
+        .distinct()
+        .order_by("descripcion")
+    )
+
+    context = {
+        "tipos": TIPOS_LOCAL,
+        "tipo_actual": "local",
+        "locales": pagina,
+        "buscar": buscar,
+        "sector_filtro": sector,
+        "sectores": sectores,
+        "total_locales": len(locales),
+        "ocupados": len(locales) - desocupados,
+        "desocupados": desocupados,
+        "total_pendiente": total_pendiente,
+    }
+    return render(request, "core/locales_matriz.html", context)
+
+
 @login_required
 def pagos(request, tipo="local"):
     if request.user.perfil.rol == "administrador":
@@ -221,6 +299,13 @@ def pagos(request, tipo="local"):
     if tipo not in tipos_validos:
         tipo = "local"
 
+    # "Local" muestra la ficha maestra de los locales (hoja "Matriz" del Excel):
+    # una fila por local, no una lista de pagos.
+    if tipo == "local":
+        return _listado_locales(request)
+
+    base_tipo = Pago.objects.filter(local__tipo=tipo)
+
     numero_filtro = request.GET.get("numero", "").strip()
     mes_desde = request.GET.get("mes_desde", "").strip()
     mes_hasta = request.GET.get("mes_hasta", "").strip()
@@ -229,7 +314,7 @@ def pagos(request, tipo="local"):
     folio_filtro = request.GET.get("folio", "").strip()
     empresario_filtro = request.GET.get("empresario", "").strip()
 
-    pagos_lista = Pago.objects.filter(local__tipo=tipo)
+    pagos_lista = base_tipo
     if numero_filtro:
         pagos_lista = pagos_lista.filter(local__numero__icontains=numero_filtro)
     if folio_filtro:
@@ -247,19 +332,21 @@ def pagos(request, tipo="local"):
         pagos_lista = pagos_lista.filter(fecha__year__gte=int(anio_desde))
     if anio_hasta.isdigit():
         pagos_lista = pagos_lista.filter(fecha__year__lte=int(anio_hasta))
-    pagos_lista = pagos_lista.select_related("local").annotate(
-        n_dias=Count("detalles_diarios", distinct=True),
-        total_dias=Coalesce(Sum("detalles_diarios__valor"), Decimal("0")),
-    ).order_by("-fecha")
+    pagos_lista = pagos_lista.select_related("local").order_by("-fecha")
 
-    años_disponibles = (
-        Pago.objects.filter(local__tipo=tipo)
-        .dates("fecha", "year")
-    )
+    # Paginacion: 14 filas por pagina para no colapsar
+    paginator = Paginator(pagos_lista, 12)
+    pagina = request.GET.get("pagina", 1)
+    try:
+        pagos_pagina = paginator.get_page(pagina)
+    except Exception:
+        pagos_pagina = paginator.get_page(1)
+    pagos_lista = pagos_pagina
+
+    años_disponibles = base_tipo.dates("fecha", "year")
     años_lista = sorted({a.year for a in años_disponibles})
     meses_lista = MESES_ES
 
-    base_tipo = Pago.objects.filter(local__tipo=tipo)
     numeros_sugeridos = list(
         base_tipo.values_list("local__numero", flat=True).distinct().order_by("local__numero")
     )
@@ -273,7 +360,27 @@ def pagos(request, tipo="local"):
     es_caja = request.user.perfil.rol == "caja"
     es_admin = request.user.perfil.rol == "administrador"
 
-    arbol = _construir_arbol(pagos_lista)
+    # Precalcular desglose por día: solo los días que pertenecen al mes del pago
+    for p in pagos_lista:
+        detalles = list(p.detalles_diarios.all())
+        por_fecha = {d.fecha: d for d in detalles}
+        ultimo_dia = monthrange(p.fecha.year, p.fecha.month)[1]
+        desglose = []
+        for dia in range(1, ultimo_dia + 1):
+            dia_fecha = date(p.fecha.year, p.fecha.month, dia)
+            if not dia_habil_para(tipo, dia_fecha):
+                continue
+            d = por_fecha.get(dia_fecha)
+            desglose.append({
+                "id": d.id if d else None,
+                "dia_nombre": DIAS_SEMANA_ES[dia_fecha.weekday()],
+                "dia_num": dia_fecha.day,
+                "fecha": dia_fecha.isoformat(),
+                "folio": (d.folio or "") if d else "",
+                "valor": d.valor if d else Decimal("0"),
+            })
+        p.desglose = desglose
+        p.desglose_total = sum((d.valor for d in detalles), Decimal("0"))
 
     # Valor UTM visible (para el indicador/card): mes del filtro o mes actual
     anio_actual = date.today().year
@@ -281,7 +388,7 @@ def pagos(request, tipo="local"):
 
     # Empresarios nuevos del mes visible: primer pago en ese mes (por tipo)
     empresarios_nuevos = (
-        Pago.objects.filter(local__tipo=tipo)
+        base_tipo
         .exclude(empresario="")
         .values("empresario")
         .annotate(primera=Min("fecha"))
@@ -289,13 +396,10 @@ def pagos(request, tipo="local"):
         .count()
     )
 
-    total_consulta = sum((e["total"] for e in arbol), Decimal("0"))
-
     context = {
         "tipos": TIPOS_LOCAL,
         "tipo_actual": tipo,
-        "arbol": arbol,
-        "total_consulta": total_consulta,
+        "pagos": pagos_lista,
         "numero_filtro": numero_filtro,
         "mes_desde": mes_desde,
         "mes_hasta": mes_hasta,
@@ -316,6 +420,484 @@ def pagos(request, tipo="local"):
         "anio_nuevos": anio_actual,
     }
     return render(request, "core/pagos.html", context)
+def agregar_pago(request, tipo):
+
+    if request.user.perfil.rol != "caja":
+
+        messages.error(request, "No tienes permisos para registrar pagos.")
+
+        return redirect("pagos_tipo", tipo=tipo)
+
+
+
+    if request.method == "POST":
+
+        try:
+
+            numero = request.POST.get("numero", "").strip()
+
+            fecha = request.POST.get("fecha", "")
+
+            mes = request.POST.get("mes", "").strip()
+
+            empresario = request.POST.get("empresario", "").strip()
+
+            rut = request.POST.get("rut", "").strip()
+
+            descripcion = request.POST.get("descripcion", "").strip()
+
+            tipo_deuda = request.POST.get("tipo_deuda", "").strip()
+
+            domicilio = request.POST.get("domicilio", "").strip()
+
+            fono = request.POST.get("fono", "").strip()
+
+            correo = request.POST.get("correo", "").strip()
+
+            periodo = request.POST.get("periodo", "").strip()
+
+            valor = request.POST.get("valor", "")
+
+            fecha_pago = request.POST.get("fecha_pago", "") or None
+
+            folio = request.POST.get("folio", "").strip()
+
+
+
+            if not numero or not fecha:
+
+                raise ValueError("N┬░ de local y fecha son obligatorios.")
+
+            if not valor:
+
+                raise ValueError("El valor es obligatorio.")
+
+            if not folio:
+
+                raise ValueError("El folio es obligatorio.")
+
+
+
+            from datetime import datetime
+
+            fecha_obj = datetime.strptime(fecha, "%Y-%m-%d").date()
+
+
+
+            if not dia_habil_para(tipo, fecha_obj):
+
+                raise ValueError(mensaje_no_habil(tipo, fecha_obj))
+
+
+
+            if not mes:
+
+                mes = MESES_ES[fecha_obj.month - 1]
+
+
+
+            valor_dec = Decimal(valor)
+
+            if valor_dec < 0:
+
+                raise ValueError("El valor no puede ser negativo.")
+
+
+
+            local, _ = Local.objects.get_or_create(
+
+                numero=numero, defaults={"tipo": tipo, "ocupado": True}
+
+            )
+
+            if local.tipo != tipo:
+
+                local.tipo = tipo
+
+                local.save()
+
+
+
+            if Pago.objects.filter(folio=folio).exists():
+
+                raise ValueError(f"Ya existe un registro con el folio {folio}.")
+
+
+
+            fecha_pago_obj = None
+
+            if fecha_pago:
+
+                fecha_pago_obj = datetime.strptime(fecha_pago, "%Y-%m-%d").date()
+
+
+
+            pago = Pago.objects.create(
+
+                local=local,
+
+                fecha=fecha_obj,
+
+                mes=mes,
+
+                empresario=empresario,
+
+                rut=rut,
+
+                descripcion=descripcion,
+
+                tipo_deuda=tipo_deuda,
+
+                domicilio=domicilio,
+
+                fono=fono,
+
+                correo=correo,
+
+                periodo=periodo,
+
+                valor=valor_dec,
+
+                fecha_pago=fecha_pago_obj,
+
+                folio=folio,
+
+            )
+
+            repartir_valor_dias(pago, tipo, fecha_obj, valor_dec)
+
+            registrar_historial(
+
+                request, "crear", tipo, folio, numero, valor_dec
+
+            )
+
+            messages.success(request, "Registro guardado correctamente.")
+
+            return redirect("pagos_tipo", tipo=tipo)
+
+        except ValueError as e:
+
+            messages.error(request, str(e))
+
+        except Exception as e:
+
+            messages.error(request, f"No se pudo guardar: {e}")
+
+
+
+    context = {
+
+        "tipo": tipo,
+
+        "hoy": date.today().isoformat(),
+
+        "restringido": tipo in TIPOS_RESTRINGIDOS,
+
+        "feriados": [f.isoformat() for f in FERIADOS_2026],
+
+    }
+
+    return render(request, "core/agregar_pago.html", context)
+
+
+
+
+
+@login_required
+
+
+def abonar_pago(request, tipo, folio):
+
+    if request.user.perfil.rol != "caja":
+
+        return JsonResponse({"ok": False, "error": "Sin permisos"}, status=403)
+
+
+
+    try:
+
+        pago = Pago.objects.select_related("local").get(folio=folio)
+
+    except Pago.DoesNotExist:
+
+        return JsonResponse({"ok": False, "error": "Pago no encontrado"}, status=404)
+
+
+
+    if request.method != "POST":
+
+        return JsonResponse({"ok": False, "error": "Método no permitido"}, status=405)
+
+
+
+    accion = request.POST.get("accion", "guardar")
+
+
+
+    def _fecha_dia():
+
+        valor_fecha = request.POST.get("dia_fecha", "").strip()
+
+        if valor_fecha:
+
+            return datetime.strptime(valor_fecha, "%Y-%m-%d").date()
+
+        valor_dia = int(request.POST.get("dia_num") or 0)
+
+        return date(pago.fecha.year, pago.fecha.month, valor_dia)
+
+
+
+    try:
+
+        if accion == "eliminar":
+
+            fecha_dia = _fecha_dia()
+
+            PagoDiario.objects.filter(pago=pago, fecha=fecha_dia).delete()
+
+            return JsonResponse({"ok": True, "total": str(_sincronizar_total(pago))})
+
+
+
+        # accion == guardar
+
+        fecha_dia = _fecha_dia()
+
+        dia_nombre = request.POST.get("dia_nombre", "").strip()
+
+        valor_str = request.POST.get("valor", "").strip()
+
+        folio_dia = request.POST.get("folio", "").strip()
+
+
+
+        if not (date(1900, 1, 1) <= fecha_dia <= date(2100, 12, 31)):
+
+            return JsonResponse({"ok": False, "error": "Fecha fuera de rango"}, status=400)
+
+
+
+        if not dia_nombre:
+
+            dia_nombre = DIAS_SEMANA_ES[fecha_dia.weekday()]
+
+
+
+        if folio_dia:
+
+            en_uso = (
+
+                PagoDiario.objects.filter(folio=folio_dia)
+
+                .exclude(pago=pago, fecha=fecha_dia)
+
+                .exists()
+
+            )
+
+            if en_uso:
+
+                return JsonResponse({"ok": False, "error": "Ese folio ya estí en uso."}, status=400)
+
+
+
+        valor_dec = Decimal(valor_str) if valor_str else Decimal("0")
+
+        if valor_dec < 0:
+
+            return JsonResponse({"ok": False, "error": "El valor no puede ser negativo"}, status=400)
+
+
+
+        PagoDiario.objects.update_or_create(
+
+            pago=pago,
+
+            fecha=fecha_dia,
+
+            defaults={"dia": dia_nombre, "valor": valor_dec, "folio": folio_dia or None},
+
+        )
+
+        return JsonResponse({"ok": True, "total": str(_sincronizar_total(pago))})
+
+    except (ValueError, InvalidOperation):
+
+        return JsonResponse({"ok": False, "error": "Datos invílidos"}, status=400)
+
+
+
+
+
+def _total_pago(pago):
+
+    total = sum(
+
+        (d.valor for d in pago.detalles_diarios.all()),
+
+        Decimal("0"),
+
+    )
+
+    return str(total)
+
+
+
+
+
+def _sincronizar_total(pago):
+
+    """Deja el total del mes igual a la suma de sus días (los días son la fuente de verdad)."""
+
+    total = sum(
+
+        (d.valor for d in pago.detalles_diarios.all()),
+
+        Decimal("0"),
+
+    )
+
+    if pago.valor != total:
+
+        pago.valor = total
+
+        pago.save(update_fields=["valor"])
+
+    return total
+
+
+
+
+
+def repartir_valor_dias(pago, tipo, fecha, valor):
+
+    """Divide el monto del pago entre los días híbiles del mes y lo guarda
+
+    en cada PagoDiario del desglose. Conserva los días existentes por fecha y
+
+    elimina los que dejan de pertenecer al mes."""
+
+    ultimo_dia = monthrange(fecha.year, fecha.month)[1]
+
+    fechas = []
+
+    for dia_num in range(1, ultimo_dia + 1):
+
+        dia_fecha = date(fecha.year, fecha.month, dia_num)
+
+        if not dia_habil_para(tipo, dia_fecha):
+
+            continue
+
+        fechas.append(dia_fecha)
+
+
+
+    n = len(fechas)
+
+    if n == 0:
+
+        pago.detalles_diarios.all().delete()
+
+        return
+
+
+
+    centavos_total = int((valor * Decimal("100")).quantize(Decimal("1")))
+
+    base, resto = divmod(centavos_total, n)
+
+    existentes = {d.fecha: d for d in pago.detalles_diarios.all()}
+
+    for i, dia_fecha in enumerate(fechas):
+
+        centavos = base + (1 if i < resto else 0)
+
+        valor_dia = Decimal(centavos) / 100
+
+        d = existentes.pop(dia_fecha, None)
+
+        if d is None:
+
+            PagoDiario.objects.create(
+
+                pago=pago,
+
+                fecha=dia_fecha,
+
+                dia=DIAS_SEMANA_ES[dia_fecha.weekday()],
+
+                valor=valor_dia,
+
+                folio=None,
+
+            )
+
+        else:
+
+            d.dia = DIAS_SEMANA_ES[dia_fecha.weekday()]
+
+            d.valor = valor_dia
+
+            d.save()
+
+
+
+    for d in existentes.values():
+
+        d.delete()
+
+
+
+
+
+@login_required
+
+
+
+def pagos_empresario(request, tipo):
+    """Nivel 2 del árbol (AJAX): locales y meses de un empresario en un año dado."""
+    if request.user.perfil.rol == "administrador":
+        return JsonResponse({"ok": False, "error": "Sin permisos"}, status=403)
+
+    tipos_validos = {v for v, _ in TIPOS_LOCAL}
+    if tipo not in tipos_validos:
+        return JsonResponse({"ok": False, "error": "Tipo inválido"}, status=400)
+
+    nombre = request.GET.get("empresario", "").strip()
+    anio_param = request.GET.get("anio", "").strip()
+    if not anio_param.isdigit():
+        return JsonResponse({"ok": False, "error": "Año inválido"}, status=400)
+    anio = int(anio_param)
+
+    numero_filtro = request.GET.get("numero", "").strip()
+    folio_filtro = request.GET.get("folio", "").strip()
+    mes_desde_num = _mes_num(request.GET.get("mes_desde", "").strip())
+    mes_hasta_num = _mes_num(request.GET.get("mes_hasta", "").strip())
+
+    qs = Pago.objects.filter(local__tipo=tipo, fecha__year=anio)
+    qs = _filtrar_por_empresario(qs, nombre)
+    if numero_filtro:
+        qs = qs.filter(local__numero__icontains=numero_filtro)
+    if folio_filtro:
+        qs = qs.filter(folio__icontains=folio_filtro)
+    if mes_desde_num:
+        qs = qs.filter(fecha__month__gte=mes_desde_num)
+    if mes_hasta_num:
+        qs = qs.filter(fecha__month__lte=mes_hasta_num)
+    qs = qs.select_related("local").annotate(
+        n_dias=Count("detalles_diarios", distinct=True),
+        total_dias=Coalesce(Sum("detalles_diarios__valor"), Decimal("0")),
+    ).order_by("local__numero", "fecha")
+
+    return JsonResponse({
+        "ok": True,
+        "empresario": nombre,
+        "anio": anio,
+        "locales": _construir_locales(qs),
+    })
 
 
 def _datos_generacion(hoy):
@@ -413,410 +995,286 @@ def generar_deuda(request):
 
 
 @login_required
-def importar_excel_pagos(request):
-    if request.user.perfil.rol != "caja":
-        messages.error(request, "No tienes permisos para importar pagos.")
-        return redirect("pagos")
-
-    if request.method == "POST":
-        archivo = request.FILES.get("archivo")
-        if not archivo:
-            messages.error(request, "Selecciona un archivo Excel (.xlsx).")
-            return redirect("importar_excel_pagos")
-
-        from .importador import importar_excel_desde_bytes
-
-        r = importar_excel_desde_bytes(archivo, request.POST.get("tipo") or None)
-        if r.get("error"):
-            messages.error(request, r["error"])
-        else:
-            for msg in r.get("fila", [])[:8]:
-                messages.warning(request, msg)
-            hojas_procesadas = r.get("hojas_procesadas") or []
-            hojas_omitidas = r.get("hojas_omitidas") or []
-            if not hojas_procesadas:
-                messages.error(
-                    request,
-                    "No se encontró ninguna hoja con un tipo de local conocido"
-                    + (f" (se omitieron: {', '.join(hojas_omitidas)})." if hojas_omitidas else "."),
-                )
-                return redirect("pagos")
-            messages.success(
-                request,
-                f"Importación terminada. Hojas procesadas: {len(hojas_procesadas)}"
-                f" ({', '.join(hojas_procesadas)}). "
-                f"{r['creados']} creados, {r['actualizados']} actualizados, "
-                f"{r['sin_cambios']} sin cambios, {r['errores']} errores.",
-            )
-            if hojas_omitidas:
-                messages.warning(request, "Hojas omitidas (no son un tipo de local): " + ", ".join(hojas_omitidas))
-            if r["errores"]:
-                messages.error(request, f"Hubo {r['errores']} errores; revisa los avisos.")
-        return redirect("pagos")
-
-    context = {
-        "tipos": TIPOS_LOCAL,
-    }
-    return render(request, "core/importar_excel.html", context)
-
-
-@login_required
-def agregar_pago(request, tipo):
-    if request.user.perfil.rol != "caja":
-        messages.error(request, "No tienes permisos para registrar pagos.")
-        return redirect("pagos_tipo", tipo=tipo)
-
-    if request.method == "POST":
-        try:
-            numero = request.POST.get("numero", "").strip()
-            fecha = request.POST.get("fecha", "")
-            mes = request.POST.get("mes", "").strip()
-            empresario = request.POST.get("empresario", "").strip()
-            rut = request.POST.get("rut", "").strip()
-            descripcion = request.POST.get("descripcion", "").strip()
-            tipo_deuda = request.POST.get("tipo_deuda", "").strip()
-            domicilio = request.POST.get("domicilio", "").strip()
-            fono = request.POST.get("fono", "").strip()
-            correo = request.POST.get("correo", "").strip()
-            periodo = request.POST.get("periodo", "").strip()
-            valor = request.POST.get("valor", "")
-            fecha_pago = request.POST.get("fecha_pago", "") or None
-            folio = request.POST.get("folio", "").strip()
-
-            if not numero or not fecha:
-                raise ValueError("N° de local y fecha son obligatorios.")
-            if not valor:
-                raise ValueError("El valor es obligatorio.")
-            if not folio:
-                raise ValueError("El folio es obligatorio.")
-
-            from datetime import datetime
-            fecha_obj = datetime.strptime(fecha, "%Y-%m-%d").date()
-
-            if not dia_habil_para(tipo, fecha_obj):
-                raise ValueError(mensaje_no_habil(tipo, fecha_obj))
-
-            if not mes:
-                mes = MESES_ES[fecha_obj.month - 1]
-
-            valor_dec = Decimal(valor)
-            if valor_dec < 0:
-                raise ValueError("El valor no puede ser negativo.")
-
-            local, _ = Local.objects.get_or_create(
-                numero=numero, defaults={"tipo": tipo, "ocupado": True}
-            )
-            if local.tipo != tipo:
-                local.tipo = tipo
-                local.save()
-
-            if Pago.objects.filter(folio=folio).exists():
-                raise ValueError(f"Ya existe un registro con el folio {folio}.")
-
-            fecha_pago_obj = None
-            if fecha_pago:
-                fecha_pago_obj = datetime.strptime(fecha_pago, "%Y-%m-%d").date()
-
-            pago = Pago.objects.create(
-                local=local,
-                fecha=fecha_obj,
-                mes=mes,
-                empresario=empresario,
-                rut=rut,
-                descripcion=descripcion,
-                tipo_deuda=tipo_deuda,
-                domicilio=domicilio,
-                fono=fono,
-                correo=correo,
-                periodo=periodo,
-                valor=valor_dec,
-                fecha_pago=fecha_pago_obj,
-                folio=folio,
-            )
-            repartir_valor_dias(pago, tipo, fecha_obj, valor_dec)
-            registrar_historial(
-                request, "crear", tipo, folio, numero, valor_dec
-            )
-            messages.success(request, "Registro guardado correctamente.")
-            return redirect("pagos_tipo", tipo=tipo)
-        except ValueError as e:
-            messages.error(request, str(e))
-        except Exception as e:
-            messages.error(request, f"No se pudo guardar: {e}")
-
-    context = {
-        "tipo": tipo,
-        "hoy": date.today().isoformat(),
-        "restringido": tipo in TIPOS_RESTRINGIDOS,
-        "feriados": [f.isoformat() for f in FERIADOS_2026],
-    }
-    return render(request, "core/agregar_pago.html", context)
-
-
-@login_required
-def abonar_pago(request, tipo, folio):
-    if request.user.perfil.rol != "caja":
-        return JsonResponse({"ok": False, "error": "Sin permisos"}, status=403)
-
-    try:
-        pago = Pago.objects.select_related("local").get(folio=folio)
-    except Pago.DoesNotExist:
-        return JsonResponse({"ok": False, "error": "Pago no encontrado"}, status=404)
-
-    if request.method != "POST":
-        return JsonResponse({"ok": False, "error": "Método no permitido"}, status=405)
-
-    accion = request.POST.get("accion", "guardar")
-
-    def _fecha_dia():
-        valor_fecha = request.POST.get("dia_fecha", "").strip()
-        if valor_fecha:
-            return datetime.strptime(valor_fecha, "%Y-%m-%d").date()
-        valor_dia = int(request.POST.get("dia_num") or 0)
-        return date(pago.fecha.year, pago.fecha.month, valor_dia)
-
-    try:
-        if accion == "eliminar":
-            fecha_dia = _fecha_dia()
-            PagoDiario.objects.filter(pago=pago, fecha=fecha_dia).delete()
-            return JsonResponse({"ok": True, "total": str(_sincronizar_total(pago))})
-
-        # accion == guardar
-        fecha_dia = _fecha_dia()
-        dia_nombre = request.POST.get("dia_nombre", "").strip()
-        valor_str = request.POST.get("valor", "").strip()
-        folio_dia = request.POST.get("folio", "").strip()
-
-        if not (date(1900, 1, 1) <= fecha_dia <= date(2100, 12, 31)):
-            return JsonResponse({"ok": False, "error": "Fecha fuera de rango"}, status=400)
-
-        if not dia_nombre:
-            dia_nombre = DIAS_SEMANA_ES[fecha_dia.weekday()]
-
-        if folio_dia:
-            en_uso = (
-                PagoDiario.objects.filter(folio=folio_dia)
-                .exclude(pago=pago, fecha=fecha_dia)
-                .exists()
-            )
-            if en_uso:
-                return JsonResponse({"ok": False, "error": "Ese folio ya está en uso."}, status=400)
-
-        valor_dec = Decimal(valor_str) if valor_str else Decimal("0")
-        if valor_dec < 0:
-            return JsonResponse({"ok": False, "error": "El valor no puede ser negativo"}, status=400)
-
-        PagoDiario.objects.update_or_create(
-            pago=pago,
-            fecha=fecha_dia,
-            defaults={"dia": dia_nombre, "valor": valor_dec, "folio": folio_dia or None},
-        )
-        return JsonResponse({"ok": True, "total": str(_sincronizar_total(pago))})
-    except (ValueError, InvalidOperation):
-        return JsonResponse({"ok": False, "error": "Datos inválidos"}, status=400)
-
-
-def _total_pago(pago):
-    total = sum(
-        (d.valor for d in pago.detalles_diarios.all()),
-        Decimal("0"),
-    )
-    return str(total)
-
-
-def _sincronizar_total(pago):
-    """Deja el total del mes igual a la suma de sus días (los días son la fuente de verdad)."""
-    total = sum(
-        (d.valor for d in pago.detalles_diarios.all()),
-        Decimal("0"),
-    )
-    if pago.valor != total:
-        pago.valor = total
-        pago.save(update_fields=["valor"])
-    return total
-
-
-def repartir_valor_dias(pago, tipo, fecha, valor):
-    """Divide el monto del pago entre los días hábiles del mes y lo guarda
-    en cada PagoDiario del desglose. Conserva los días existentes por fecha y
-    elimina los que dejan de pertenecer al mes."""
-    ultimo_dia = monthrange(fecha.year, fecha.month)[1]
-    fechas = []
-    for dia_num in range(1, ultimo_dia + 1):
-        dia_fecha = date(fecha.year, fecha.month, dia_num)
-        if not dia_habil_para(tipo, dia_fecha):
-            continue
-        fechas.append(dia_fecha)
-
-    n = len(fechas)
-    if n == 0:
-        pago.detalles_diarios.all().delete()
-        return
-
-    centavos_total = int((valor * Decimal("100")).quantize(Decimal("1")))
-    base, resto = divmod(centavos_total, n)
-    existentes = {d.fecha: d for d in pago.detalles_diarios.all()}
-    for i, dia_fecha in enumerate(fechas):
-        centavos = base + (1 if i < resto else 0)
-        valor_dia = Decimal(centavos) / 100
-        d = existentes.pop(dia_fecha, None)
-        if d is None:
-            PagoDiario.objects.create(
-                pago=pago,
-                fecha=dia_fecha,
-                dia=DIAS_SEMANA_ES[dia_fecha.weekday()],
-                valor=valor_dia,
-                folio=None,
-            )
-        else:
-            d.dia = DIAS_SEMANA_ES[dia_fecha.weekday()]
-            d.valor = valor_dia
-            d.save()
-
-    for d in existentes.values():
-        d.delete()
-
-
-@login_required
 def editar_pago(request, tipo, folio):
+
     if request.user.perfil.rol != "caja":
+
         messages.error(request, "No tienes permisos para editar pagos.")
+
         return redirect("pagos_tipo", tipo=tipo)
+
+
 
     try:
+
         pago = Pago.objects.select_related("local").get(folio=folio)
+
     except Pago.DoesNotExist:
+
         messages.error(request, "No se encontró el registro con ese folio.")
+
         return redirect("pagos_tipo", tipo=tipo)
 
+
+
     if request.method == "POST":
+
         formato = request.POST.get("formato", "")
+
         try:
+
             fecha = request.POST.get("fecha", "").strip()
+
             mes = request.POST.get("mes", "").strip()
+
             empresario = request.POST.get("empresario", "").strip()
+
             rut = request.POST.get("rut", "").strip()
+
             descripcion = request.POST.get("descripcion", "").strip()
+
             tipo_deuda = request.POST.get("tipo_deuda", "").strip()
+
             domicilio = request.POST.get("domicilio", "").strip()
+
             fono = request.POST.get("fono", "").strip()
+
             correo = request.POST.get("correo", "").strip()
+
             periodo = request.POST.get("periodo", "").strip()
+
             valor = request.POST.get("valor", "").strip()
+
             fecha_pago = request.POST.get("fecha_pago", "").strip() or None
+
             numero = request.POST.get("numero", "").strip() or pago.local.numero
+
             folio_nuevo = request.POST.get("folio", "").strip() or pago.folio
 
+
+
             from datetime import datetime
 
+
+
             if not fecha:
+
                 raise ValueError("La fecha es obligatoria.")
+
             fecha_obj = datetime.strptime(fecha, "%Y-%m-%d").date()
 
+
+
             if not dia_habil_para(tipo, fecha_obj):
+
                 raise ValueError(mensaje_no_habil(tipo, fecha_obj))
 
+
+
             if not mes:
+
                 mes = MESES_ES[fecha_obj.month - 1]
 
+
+
             valor_dec = Decimal(valor)
+
             if valor_dec < 0:
+
                 raise ValueError("El valor no puede ser negativo.")
 
+
+
             fecha_pago_obj = None
+
             if fecha_pago:
+
                 fecha_pago_obj = datetime.strptime(fecha_pago, "%Y-%m-%d").date()
 
+
+
             if not numero:
-                raise ValueError("El N° de local es obligatorio.")
+
+                raise ValueError("El N┬░ de local es obligatorio.")
+
+
 
             if folio_nuevo != pago.folio and Pago.objects.filter(folio=folio_nuevo).exists():
+
                 raise ValueError(f"Ya existe un registro con el folio {folio_nuevo}.")
 
+
+
             fecha_anterior = pago.fecha
+
             local_obj = pago.local
+
             if numero != pago.local.numero:
+
                 otro = Local.objects.filter(numero=numero).first()
+
                 if otro and otro != pago.local:
-                    raise ValueError(f"Ya existe un local con el N° {numero}.")
+
+                    raise ValueError(f"Ya existe un local con el N┬░ {numero}.")
+
                 local_obj, creado = Local.objects.get_or_create(
+
                     numero=numero, defaults={"tipo": tipo, "ocupado": True}
+
                 )
+
                 if local_obj.tipo != tipo:
+
                     local_obj.tipo = tipo
+
                     local_obj.save()
 
+
+
             viejo_local = pago.local
+
             pago.local = local_obj
+
             pago.folio = folio_nuevo
+
             pago.fecha = fecha_obj
+
             pago.mes = mes
+
             pago.empresario = empresario
+
             pago.rut = rut
+
             pago.descripcion = descripcion
+
             pago.tipo_deuda = tipo_deuda
+
             pago.domicilio = domicilio
+
             pago.fono = fono
+
             pago.correo = correo
+
             pago.periodo = periodo
+
             pago.valor = valor_dec
+
             pago.fecha_pago = fecha_pago_obj
+
             pago.save()
 
+
+
             mes_cambio = (fecha_anterior.year, fecha_anterior.month) != (fecha_obj.year, fecha_obj.month)
+
             if mes_cambio or not pago.detalles_diarios.exists():
+
                 repartir_valor_dias(pago, tipo, fecha_obj, valor_dec)
+
             else:
+
                 _sincronizar_total(pago)
+
             if viejo_local != local_obj and not viejo_local.pagos.exists():
+
                 viejo_local.ocupado = False
+
                 viejo_local.save()
 
+
+
             registrar_historial(
+
                 request, "editar", pago.local.tipo, pago.folio, pago.local.numero, valor_dec
+
             )
+
             if formato == "json":
+
                 return JsonResponse({
+
                     "ok": True,
+
                     "numero": pago.local.numero,
+
                     "fecha": pago.fecha.strftime("%d/%m/%Y"),
+
                     "fecha_raw": pago.fecha.isoformat(),
+
                     "mes": pago.mes,
+
                     "empresario": pago.empresario,
+
                     "rut": pago.rut,
+
                     "descripcion": pago.descripcion,
+
                     "tipo_deuda": pago.tipo_deuda,
+
                     "domicilio": pago.domicilio,
+
                     "fono": pago.fono,
+
                     "correo": pago.correo,
+
                     "periodo": pago.periodo,
+
                     "valor": f"{pago.valor:,.0f}",
+
                     "valor_raw": f"{pago.valor}",
+
                     "fecha_pago": pago.fecha_pago.strftime("%d/%m/%Y") if pago.fecha_pago else "",
+
                     "fecha_pago_raw": pago.fecha_pago.isoformat() if pago.fecha_pago else "",
+
                     "folio": pago.folio,
+
                 })
+
             messages.success(request, "Registro actualizado correctamente.")
+
             return redirect("pagos_tipo", tipo=tipo)
+
         except (ValueError, InvalidOperation) as e:
+
             if formato == "json":
+
                 return JsonResponse({"ok": False, "error": str(e)}, status=400)
-            messages.error(request, f"No se pudo actualizar: {e}")
-        except Exception as e:
-            if formato == "json":
-                return JsonResponse({"ok": False, "error": f"No se pudo guardar: {e}"}, status=400)
+
             messages.error(request, f"No se pudo actualizar: {e}")
 
+        except Exception as e:
+
+            if formato == "json":
+
+                return JsonResponse({"ok": False, "error": f"No se pudo guardar: {e}"}, status=400)
+
+            messages.error(request, f"No se pudo actualizar: {e}")
+
+
+
     context = {
+
         "pago": pago,
+
         "tipo": tipo,
+
         "restringido": tipo in TIPOS_RESTRINGIDOS,
+
         "feriados": [f.isoformat() for f in FERIADOS_2026],
+
     }
+
     return render(request, "core/editar_pago.html", context)
 
 
+
+
+
 @login_required
+
+
+
 def eliminar_pago(request, tipo, folio):
     if request.user.perfil.rol != "caja":
         messages.error(request, "No tienes permisos para eliminar pagos.")
