@@ -56,10 +56,12 @@ logger = logging.getLogger(__name__)
 
 
 def _mes_num(valor):
+    """Devuelve el mes (1-12) o None si el valor no es un mes válido."""
     if not valor:
         return None
     if valor.isdigit():
-        return int(valor)
+        numero = int(valor)
+        return numero if 1 <= numero <= 12 else None
     buscado = valor.strip().lower()
     for indice, nombre_mes in enumerate(MESES_ES):
         if nombre_mes.lower() == buscado:
