@@ -1,3 +1,4 @@
+import logging
 from calendar import monthrange
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
@@ -6,13 +7,16 @@ from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
+from django.contrib.auth.password_validation import validate_password
 from django.core.cache import cache
+from django.core.exceptions import ValidationError
 from django.db.models import Count, Exists, Max, Min, OuterRef, Q, Sum
 from django.db.models.functions import Coalesce
 from django.core.paginator import Paginator
 from django.shortcuts import redirect, render
 from django.http import HttpResponse, JsonResponse
 
+from . import validaciones
 from .feriados import (
     FERIADOS_2026,
     TIPOS_RESTRINGIDOS,
@@ -46,6 +50,9 @@ DIAS_GENERACION = 5
 PREFIJO_FOLIO_GEN = "GEN"
 UTM_BASE = Decimal("66000")
 EMPRESARIOS_POR_PAGINA = 200
+MAX_INTENTOS_LOGIN = 5
+
+logger = logging.getLogger(__name__)
 
 
 def _mes_num(valor):
@@ -210,13 +217,28 @@ def login_view(request):
     if request.user.is_authenticated:
         return redirect("inicio")
     if request.method == "POST":
-        username = request.POST.get("username", "")
-        password = request.POST.get("password", "")
-        user = authenticate(request, username=username, password=password)
-        if user is not None:
-            login(request, user)
-            return redirect("inicio")
-        messages.error(request, "Usuario o contraseña incorrectos.")
+        username = (request.POST.get("username") or "").strip()[:150]
+        password = (request.POST.get("password") or "")[:128]
+        clave = f"login_fail:{request.META.get('REMOTE_ADDR', '')}:{username.lower()}"
+        intentos = cache.get(clave, 0)
+        if intentos >= MAX_INTENTOS_LOGIN:
+            messages.error(
+                request,
+                "Demasiados intentos fallidos. Espera 5 minutos e inténtalo de nuevo.",
+            )
+        else:
+            user = authenticate(request, username=username, password=password)
+            if user is not None:
+                cache.delete(clave)
+                login(request, user)
+                return redirect("inicio")
+            cache.set(clave, intentos + 1, 300)
+            restantes = MAX_INTENTOS_LOGIN - (intentos + 1)
+            messages.error(
+                request,
+                "Usuario o contraseña incorrectos. "
+                f"Te quedan {restantes} intento(s).",
+            )
     return render(request, "core/login.html")
 
 
@@ -234,8 +256,8 @@ def inicio(request):
 
 def _listado_locales(request):
     """Pestaña "Local": ficha maestra de los 135 locales (hoja Matriz del Excel)."""
-    buscar = request.GET.get("buscar", "").strip()
-    sector = request.GET.get("sector", "").strip()
+    buscar = request.GET.get("buscar", "").strip()[:100]
+    sector = request.GET.get("sector", "").strip()[:50]
 
     locales = list(LocalMatriz.objects.all())
     if sector:
@@ -306,13 +328,18 @@ def pagos(request, tipo="local"):
 
     base_tipo = Pago.objects.filter(local__tipo=tipo)
 
-    numero_filtro = request.GET.get("numero", "").strip()
-    mes_desde = request.GET.get("mes_desde", "").strip()
-    mes_hasta = request.GET.get("mes_hasta", "").strip()
-    anio_desde = request.GET.get("anio_desde", "").strip()
-    anio_hasta = request.GET.get("anio_hasta", "").strip()
-    folio_filtro = request.GET.get("folio", "").strip()
-    empresario_filtro = request.GET.get("empresario", "").strip()
+    numero_filtro = request.GET.get("numero", "").strip()[:10]
+    mes_desde = request.GET.get("mes_desde", "").strip()[:20]
+    mes_hasta = request.GET.get("mes_hasta", "").strip()[:20]
+    anio_desde = request.GET.get("anio_desde", "").strip()[:4]
+    anio_hasta = request.GET.get("anio_hasta", "").strip()[:4]
+    folio_filtro = request.GET.get("folio", "").strip()[:30]
+    empresario_filtro = request.GET.get("empresario", "").strip()[:150]
+
+    # Conserva los filtros activos al cambiar de pagina.
+    filtros_qs = request.GET.copy()
+    filtros_qs.pop("pagina", None)
+    filtros_qs = filtros_qs.urlencode()
 
     pagos_lista = base_tipo
     if numero_filtro:
@@ -361,24 +388,27 @@ def pagos(request, tipo="local"):
     es_admin = request.user.perfil.rol == "administrador"
 
     # Precalcular desglose por día: solo los días que pertenecen al mes del pago
+    # (Boletería y Pescadería son pagos mensuales: no usan desglose diario).
+    tipo_mensual = tipo in ("boleteria", "pescaderia")
     for p in pagos_lista:
         detalles = list(p.detalles_diarios.all())
         por_fecha = {d.fecha: d for d in detalles}
         ultimo_dia = monthrange(p.fecha.year, p.fecha.month)[1]
         desglose = []
-        for dia in range(1, ultimo_dia + 1):
-            dia_fecha = date(p.fecha.year, p.fecha.month, dia)
-            if not dia_habil_para(tipo, dia_fecha):
-                continue
-            d = por_fecha.get(dia_fecha)
-            desglose.append({
-                "id": d.id if d else None,
-                "dia_nombre": DIAS_SEMANA_ES[dia_fecha.weekday()],
-                "dia_num": dia_fecha.day,
-                "fecha": dia_fecha.isoformat(),
-                "folio": (d.folio or "") if d else "",
-                "valor": d.valor if d else Decimal("0"),
-            })
+        if not tipo_mensual:
+            for dia in range(1, ultimo_dia + 1):
+                dia_fecha = date(p.fecha.year, p.fecha.month, dia)
+                if not dia_habil_para(tipo, dia_fecha):
+                    continue
+                d = por_fecha.get(dia_fecha)
+                desglose.append({
+                    "id": d.id if d else None,
+                    "dia_nombre": DIAS_SEMANA_ES[dia_fecha.weekday()],
+                    "dia_num": dia_fecha.day,
+                    "fecha": dia_fecha.isoformat(),
+                    "folio": (d.folio or "") if d else "",
+                    "valor": d.valor if d else Decimal("0"),
+                })
         p.desglose = desglose
         p.desglose_total = sum((d.valor for d in detalles), Decimal("0"))
 
@@ -407,6 +437,8 @@ def pagos(request, tipo="local"):
         "anio_hasta": anio_hasta,
         "folio_filtro": folio_filtro,
         "empresario_filtro": empresario_filtro,
+        "filtros_qs": filtros_qs,
+        "tipo_mensual": tipo_mensual,
         "años_lista": años_lista,
         "meses_lista": meses_lista,
         "numeros_sugeridos": numeros_sugeridos,
@@ -420,6 +452,9 @@ def pagos(request, tipo="local"):
         "anio_nuevos": anio_actual,
     }
     return render(request, "core/pagos.html", context)
+
+
+@login_required
 def agregar_pago(request, tipo):
 
     if request.user.perfil.rol != "caja":
@@ -434,61 +469,41 @@ def agregar_pago(request, tipo):
 
         try:
 
-            numero = request.POST.get("numero", "").strip()
+            numero = validaciones.numero_local(request.POST.get("numero"))
 
-            fecha = request.POST.get("fecha", "")
+            fecha = validaciones.fecha(request.POST.get("fecha"), "fecha")
 
-            mes = request.POST.get("mes", "").strip()
+            mes = validaciones.mes(request.POST.get("mes"))
 
-            empresario = request.POST.get("empresario", "").strip()
+            empresario = validaciones.empresa(request.POST.get("empresario"))
 
-            rut = request.POST.get("rut", "").strip()
+            rut = validaciones.rut(request.POST.get("rut"))
 
-            descripcion = request.POST.get("descripcion", "").strip()
+            descripcion = validaciones.descripcion(request.POST.get("descripcion"))
 
-            tipo_deuda = request.POST.get("tipo_deuda", "").strip()
+            domicilio = validaciones.domicilio(request.POST.get("domicilio"))
 
-            domicilio = request.POST.get("domicilio", "").strip()
+            fono = validaciones.fono(request.POST.get("fono"))
 
-            fono = request.POST.get("fono", "").strip()
+            correo = validaciones.correo(request.POST.get("correo"))
 
-            correo = request.POST.get("correo", "").strip()
+            periodo = validaciones.periodo(request.POST.get("periodo"))
 
-            periodo = request.POST.get("periodo", "").strip()
+            valor_dec = validaciones.monto(request.POST.get("valor"), "valor")
 
-            valor = request.POST.get("valor", "")
+            fecha_pago_obj = validaciones.fecha(
+                request.POST.get("fecha_pago"), "fecha de pago", obligatorio=False
+            )
 
-            fecha_pago = request.POST.get("fecha_pago", "") or None
-
-            folio = request.POST.get("folio", "").strip()
-
-
-
-            if not numero or not fecha:
-
-                raise ValueError("N┬░ de local y fecha son obligatorios.")
-
-            if not valor:
-
-                raise ValueError("El valor es obligatorio.")
-
-            if not folio:
-
-                raise ValueError("El folio es obligatorio.")
+            folio = validaciones.folio(request.POST.get("folio"))
 
 
 
-            from datetime import datetime
-
-            fecha_obj = datetime.strptime(fecha, "%Y-%m-%d").date()
-
-
+            fecha_obj = fecha
 
             if not dia_habil_para(tipo, fecha_obj):
 
                 raise ValueError(mensaje_no_habil(tipo, fecha_obj))
-
-
 
             if not mes:
 
@@ -496,17 +511,11 @@ def agregar_pago(request, tipo):
 
 
 
-            valor_dec = Decimal(valor)
-
-            if valor_dec < 0:
-
-                raise ValueError("El valor no puede ser negativo.")
-
 
 
             local, _ = Local.objects.get_or_create(
 
-                numero=numero, defaults={"tipo": tipo, "ocupado": True}
+                numero=numero, tipo=tipo, defaults={"ocupado": True}
 
             )
 
@@ -518,17 +527,11 @@ def agregar_pago(request, tipo):
 
 
 
+
+
             if Pago.objects.filter(folio=folio).exists():
 
                 raise ValueError(f"Ya existe un registro con el folio {folio}.")
-
-
-
-            fecha_pago_obj = None
-
-            if fecha_pago:
-
-                fecha_pago_obj = datetime.strptime(fecha_pago, "%Y-%m-%d").date()
 
 
 
@@ -546,8 +549,6 @@ def agregar_pago(request, tipo):
 
                 descripcion=descripcion,
 
-                tipo_deuda=tipo_deuda,
-
                 domicilio=domicilio,
 
                 fono=fono,
@@ -564,7 +565,9 @@ def agregar_pago(request, tipo):
 
             )
 
-            repartir_valor_dias(pago, tipo, fecha_obj, valor_dec)
+            if tipo not in ("boleteria", "pescaderia"):
+
+                repartir_valor_dias(pago, tipo, fecha_obj, valor_dec)
 
             registrar_historial(
 
@@ -580,9 +583,14 @@ def agregar_pago(request, tipo):
 
             messages.error(request, str(e))
 
-        except Exception as e:
+        except Exception:
 
-            messages.error(request, f"No se pudo guardar: {e}")
+            logger.exception("Error al agregar pago (tipo=%s)", tipo)
+
+            messages.error(
+                request,
+                "No se pudo guardar el registro. Revisa los datos e inténtalo de nuevo.",
+            )
 
 
 
@@ -593,6 +601,8 @@ def agregar_pago(request, tipo):
         "hoy": date.today().isoformat(),
 
         "restringido": tipo in TIPOS_RESTRINGIDOS,
+
+        "mensual": tipo in ("boleteria", "pescaderia"),
 
         "feriados": [f.isoformat() for f in FERIADOS_2026],
 
@@ -665,11 +675,11 @@ def abonar_pago(request, tipo, folio):
 
         fecha_dia = _fecha_dia()
 
-        dia_nombre = request.POST.get("dia_nombre", "").strip()
+        dia_nombre = validaciones.mes(request.POST.get("dia_nombre"))
 
-        valor_str = request.POST.get("valor", "").strip()
+        valor_dec = validaciones.monto(request.POST.get("valor"), "valor", obligatorio=False)
 
-        folio_dia = request.POST.get("folio", "").strip()
+        folio_dia = validaciones.folio(request.POST.get("folio"), obligatorio=False)
 
 
 
@@ -703,8 +713,6 @@ def abonar_pago(request, tipo, folio):
 
 
 
-        valor_dec = Decimal(valor_str) if valor_str else Decimal("0")
-
         if valor_dec < 0:
 
             return JsonResponse({"ok": False, "error": "El valor no puede ser negativo"}, status=400)
@@ -723,9 +731,13 @@ def abonar_pago(request, tipo, folio):
 
         return JsonResponse({"ok": True, "total": str(_sincronizar_total(pago))})
 
+    except validaciones.CampoInvalido as e:
+
+        return JsonResponse({"ok": False, "error": str(e)}, status=400)
+
     except (ValueError, InvalidOperation):
 
-        return JsonResponse({"ok": False, "error": "Datos invílidos"}, status=400)
+        return JsonResponse({"ok": False, "error": "Datos inválidos"}, status=400)
 
 
 
@@ -866,16 +878,16 @@ def pagos_empresario(request, tipo):
     if tipo not in tipos_validos:
         return JsonResponse({"ok": False, "error": "Tipo inválido"}, status=400)
 
-    nombre = request.GET.get("empresario", "").strip()
-    anio_param = request.GET.get("anio", "").strip()
+    nombre = request.GET.get("empresario", "").strip()[:150]
+    anio_param = request.GET.get("anio", "").strip()[:4]
     if not anio_param.isdigit():
         return JsonResponse({"ok": False, "error": "Año inválido"}, status=400)
     anio = int(anio_param)
 
-    numero_filtro = request.GET.get("numero", "").strip()
-    folio_filtro = request.GET.get("folio", "").strip()
-    mes_desde_num = _mes_num(request.GET.get("mes_desde", "").strip())
-    mes_hasta_num = _mes_num(request.GET.get("mes_hasta", "").strip())
+    numero_filtro = request.GET.get("numero", "").strip()[:10]
+    folio_filtro = request.GET.get("folio", "").strip()[:30]
+    mes_desde_num = _mes_num(request.GET.get("mes_desde", "").strip()[:20])
+    mes_hasta_num = _mes_num(request.GET.get("mes_hasta", "").strip()[:20])
 
     qs = Pago.objects.filter(local__tipo=tipo, fecha__year=anio)
     qs = _filtrar_por_empresario(qs, nombre)
@@ -944,8 +956,8 @@ def generar_deuda(request):
                 continue
             valor_post = request.POST.get(f"valor_{fila['local'].id}", "").strip()
             try:
-                valor_dec = Decimal(valor_post) if valor_post else None
-            except InvalidOperation:
+                valor_dec = validaciones.monto(valor_post, "valor", obligatorio=False)
+            except validaciones.CampoInvalido:
                 valor_dec = None
             if valor_dec is None or valor_dec <= 0:
                 omitidos += 1
@@ -1023,73 +1035,41 @@ def editar_pago(request, tipo, folio):
 
         try:
 
-            fecha = request.POST.get("fecha", "").strip()
+            fecha = validaciones.fecha(request.POST.get("fecha"), "fecha")
 
-            mes = request.POST.get("mes", "").strip()
+            mes = validaciones.mes(request.POST.get("mes"))
 
-            empresario = request.POST.get("empresario", "").strip()
+            empresario = validaciones.empresa(request.POST.get("empresario"))
 
-            rut = request.POST.get("rut", "").strip()
+            rut = validaciones.rut(request.POST.get("rut"))
 
-            descripcion = request.POST.get("descripcion", "").strip()
+            descripcion = validaciones.descripcion(request.POST.get("descripcion"))
 
-            tipo_deuda = request.POST.get("tipo_deuda", "").strip()
+            domicilio = validaciones.domicilio(request.POST.get("domicilio"))
 
-            domicilio = request.POST.get("domicilio", "").strip()
+            fono = validaciones.fono(request.POST.get("fono"))
 
-            fono = request.POST.get("fono", "").strip()
+            correo = validaciones.correo(request.POST.get("correo"))
 
-            correo = request.POST.get("correo", "").strip()
+            periodo = validaciones.periodo(request.POST.get("periodo"))
 
-            periodo = request.POST.get("periodo", "").strip()
+            valor_dec = validaciones.monto(request.POST.get("valor"), "valor")
 
-            valor = request.POST.get("valor", "").strip()
+            fecha_pago_obj = validaciones.fecha(
+                request.POST.get("fecha_pago"), "fecha de pago", obligatorio=False
+            )
 
-            fecha_pago = request.POST.get("fecha_pago", "").strip() or None
+            numero = validaciones.numero_local(
+                request.POST.get("numero") or pago.local.numero
+            )
 
-            numero = request.POST.get("numero", "").strip() or pago.local.numero
-
-            folio_nuevo = request.POST.get("folio", "").strip() or pago.folio
-
-
-
-            from datetime import datetime
-
-
-
-            if not fecha:
-
-                raise ValueError("La fecha es obligatoria.")
-
-            fecha_obj = datetime.strptime(fecha, "%Y-%m-%d").date()
+            folio_nuevo = validaciones.folio(
+                request.POST.get("folio") or pago.folio
+            )
 
 
 
-            if not dia_habil_para(tipo, fecha_obj):
-
-                raise ValueError(mensaje_no_habil(tipo, fecha_obj))
-
-
-
-            if not mes:
-
-                mes = MESES_ES[fecha_obj.month - 1]
-
-
-
-            valor_dec = Decimal(valor)
-
-            if valor_dec < 0:
-
-                raise ValueError("El valor no puede ser negativo.")
-
-
-
-            fecha_pago_obj = None
-
-            if fecha_pago:
-
-                fecha_pago_obj = datetime.strptime(fecha_pago, "%Y-%m-%d").date()
+            fecha_obj = fecha
 
 
 
@@ -1111,7 +1091,7 @@ def editar_pago(request, tipo, folio):
 
             if numero != pago.local.numero:
 
-                otro = Local.objects.filter(numero=numero).first()
+                otro = Local.objects.filter(numero=numero, tipo=tipo).first()
 
                 if otro and otro != pago.local:
 
@@ -1119,7 +1099,7 @@ def editar_pago(request, tipo, folio):
 
                 local_obj, creado = Local.objects.get_or_create(
 
-                    numero=numero, defaults={"tipo": tipo, "ocupado": True}
+                    numero=numero, tipo=tipo, defaults={"ocupado": True}
 
                 )
 
@@ -1147,8 +1127,6 @@ def editar_pago(request, tipo, folio):
 
             pago.descripcion = descripcion
 
-            pago.tipo_deuda = tipo_deuda
-
             pago.domicilio = domicilio
 
             pago.fono = fono
@@ -1167,7 +1145,11 @@ def editar_pago(request, tipo, folio):
 
             mes_cambio = (fecha_anterior.year, fecha_anterior.month) != (fecha_obj.year, fecha_obj.month)
 
-            if mes_cambio or not pago.detalles_diarios.exists():
+            if tipo in ("boleteria", "pescaderia"):
+
+                pago.detalles_diarios.all().delete()
+
+            elif mes_cambio or not pago.detalles_diarios.exists():
 
                 repartir_valor_dias(pago, tipo, fecha_obj, valor_dec)
 
@@ -1209,9 +1191,7 @@ def editar_pago(request, tipo, folio):
 
                     "descripcion": pago.descripcion,
 
-                    "tipo_deuda": pago.tipo_deuda,
-
-                    "domicilio": pago.domicilio,
+                            "domicilio": pago.domicilio,
 
                     "fono": pago.fono,
 
@@ -1243,13 +1223,21 @@ def editar_pago(request, tipo, folio):
 
             messages.error(request, f"No se pudo actualizar: {e}")
 
-        except Exception as e:
+        except Exception:
+
+            logger.exception("Error al editar pago %s", folio)
 
             if formato == "json":
 
-                return JsonResponse({"ok": False, "error": f"No se pudo guardar: {e}"}, status=400)
+                return JsonResponse(
+                    {"ok": False, "error": "No se pudo guardar el registro."},
+                    status=400,
+                )
 
-            messages.error(request, f"No se pudo actualizar: {e}")
+            messages.error(
+                request,
+                "No se pudo actualizar el registro. Revisa los datos e inténtalo de nuevo.",
+            )
 
 
 
@@ -1360,30 +1348,39 @@ def usuarios_admin(request):
     if request.method == "POST":
         accion = request.POST.get("accion", "")
         if accion == "crear":
-            username = request.POST.get("username", "").strip()
-            password = request.POST.get("password", "")
-            rol = request.POST.get("rol", "caja")
             try:
-                if not username or not password:
-                    raise ValueError("Usuario y contraseña son obligatorios.")
-                if User.objects.filter(username=username).exists():
+                username = validaciones.usuario(request.POST.get("username"))
+                password = (request.POST.get("password") or "")[:128]
+                rol = request.POST.get("rol", "caja")
+                if rol not in dict(ROLES):
+                    raise ValueError("El rol seleccionado no es válido.")
+                if not password:
+                    raise ValueError("La contraseña es obligatoria.")
+                validate_password(password)
+                if User.objects.filter(username__iexact=username).exists():
                     raise ValueError(f"El usuario '{username}' ya existe.")
                 user = User.objects.create_user(username=username, password=password)
                 user.perfil.rol = rol
                 user.perfil.save()
                 messages.success(request, "Usuario creado correctamente.")
+            except ValidationError as e:
+                messages.error(request, " ".join(e.messages))
             except ValueError as e:
                 messages.error(request, str(e))
         elif accion == "cambiar_rol":
-            username = request.POST.get("username", "").strip()
+            username = request.POST.get("username", "").strip()[:150]
             nuevo_rol = request.POST.get("rol", "caja")
             try:
+                if nuevo_rol not in dict(ROLES):
+                    raise ValueError("El rol seleccionado no es válido.")
                 user = User.objects.get(username=username)
                 user.perfil.rol = nuevo_rol
                 user.perfil.save()
                 messages.success(request, f"Rol de '{username}' actualizado.")
             except User.DoesNotExist:
                 messages.error(request, "Usuario no encontrado.")
+            except ValueError as e:
+                messages.error(request, str(e))
 
     usuarios = Perfil.objects.select_related("user").order_by("user__username")
     context = {
@@ -1397,11 +1394,15 @@ def usuarios_admin(request):
 @login_required
 def reportes(request):
     tipo = request.GET.get("tipo", "")
-    anio_desde = request.GET.get("anio_desde", "").strip()
-    anio_hasta = request.GET.get("anio_hasta", "").strip()
-    mes_desde = request.GET.get("mes_desde", "").strip()
-    mes_hasta = request.GET.get("mes_hasta", "").strip()
+    anio_desde = request.GET.get("anio_desde", "").strip()[:4]
+    anio_hasta = request.GET.get("anio_hasta", "").strip()[:4]
+    mes_desde = request.GET.get("mes_desde", "").strip()[:20]
+    mes_hasta = request.GET.get("mes_hasta", "").strip()[:20]
     exportar = request.GET.get("exportar", "")
+
+    tipos_validos = {v for v, _ in TIPOS_LOCAL}
+    if tipo not in tipos_validos:
+        tipo = ""
 
     base = Pago.objects.all()
     if tipo:
@@ -1469,7 +1470,7 @@ def reportes(request):
         ws_cuentas.title = "Cuentas del Mes"
         cabeceras_cuentas = [
             "Mes", "Año", "Empresario", "RUT", "Folio", "N° Local", "Tipo local",
-            "Tipo deuda", "Descripción", "Domicilio", "Teléfono", "Correo",
+            "Descripción", "Domicilio", "Teléfono", "Correo",
             "Período", "Fecha pago", "Valor", "Estado",
         ]
         ws_cuentas.append(cabeceras_cuentas)
@@ -1486,7 +1487,6 @@ def reportes(request):
                 pago.folio,
                 pago.local.numero,
                 pago.local.get_tipo_display(),
-                pago.tipo_deuda,
                 pago.descripcion,
                 pago.domicilio,
                 pago.fono,
@@ -1499,20 +1499,20 @@ def reportes(request):
 
         fila_total = [""] * len(cabeceras_cuentas)
         fila_total[0] = "TOTAL GENERAL"
-        fila_total[14] = float(total_general)
+        fila_total[13] = float(total_general)
         ws_cuentas.append([])
         ws_cuentas.append(fila_total)
         ws_cuentas.cell(row=ws_cuentas.max_row, column=1).font = Font(bold=True)
         fila_pend = [""] * len(cabeceras_cuentas)
         fila_pend[0] = "TOTAL PENDIENTE"
-        fila_pend[14] = float(total_pendiente)
+        fila_pend[13] = float(total_pendiente)
         ws_cuentas.append(fila_pend)
         ws_cuentas.cell(row=ws_cuentas.max_row, column=1).font = Font(bold=True)
         ws_cuentas.append(["Generado", date.today().isoformat()])
 
         for col, ancho in zip(
-            "ABCDEFGHIJKLMNOP",
-            (12, 6, 28, 15, 14, 10, 14, 14, 30, 24, 14, 20, 12, 14, 14, 12),
+            "ABCDEFGHIJKLMNO",
+            (12, 6, 28, 15, 14, 10, 14, 30, 24, 14, 20, 12, 14, 14, 12),
         ):
             ws_cuentas.column_dimensions[col].width = ancho
 
@@ -1520,7 +1520,7 @@ def reportes(request):
         ws_desglose = wb.create_sheet("Desglose Diario")
         cabeceras_desglose = [
             "Folio", "Mes", "Año", "Empresario", "RUT", "N° Local", "Tipo local",
-            "Tipo deuda", "Descripción", "Domicilio", "Teléfono", "Correo",
+            "Descripción", "Domicilio", "Teléfono", "Correo",
             "Período", "Fecha pago", "Valor total", "Día", "Día de la semana",
             "Fecha día", "Valor diario", "Estado",
         ]
@@ -1539,8 +1539,7 @@ def reportes(request):
                     pago.rut,
                     pago.local.numero,
                     pago.local.get_tipo_display(),
-                    pago.tipo_deuda,
-                    pago.descripcion,
+                        pago.descripcion,
                     pago.domicilio,
                     pago.fono,
                     pago.correo,
@@ -1556,15 +1555,15 @@ def reportes(request):
 
         fila_total2 = [""] * len(cabeceras_desglose)
         fila_total2[0] = "TOTAL GENERAL"
-        fila_total2[14] = float(total_general)
-        fila_total2[18] = float(total_general)
+        fila_total2[13] = float(total_general)
+        fila_total2[17] = float(total_general)
         ws_desglose.append([])
         ws_desglose.append(fila_total2)
         ws_desglose.cell(row=ws_desglose.max_row, column=1).font = Font(bold=True)
 
         for col, ancho in zip(
-            "ABCDEFGHIJKLMNOPQRST",
-            (14, 12, 6, 28, 15, 10, 14, 14, 30, 24, 14, 20, 12, 14, 14, 6, 16, 14, 14, 12),
+            "ABCDEFGHIJKLMNOPQRS",
+            (14, 12, 6, 28, 15, 10, 14, 30, 24, 14, 20, 12, 14, 14, 6, 16, 14, 14, 12),
         ):
             ws_desglose.column_dimensions[col].width = ancho
 
@@ -1579,52 +1578,6 @@ def reportes(request):
 
 
 @login_required
-def aplicar_utm(request):
-    if request.user.perfil.rol != "caja":
-        messages.error(request, "No tienes permisos para aplicar valor UTM.")
-        return redirect("pagos")
-
-    if request.method == "POST":
-        try:
-            valor_utm = Decimal(request.POST.get("valor_utm", "").strip())
-            mes = int(request.POST.get("mes", "").strip())
-            if valor_utm <= 0:
-                raise ValueError("El valor UTM debe ser mayor que cero.")
-            if not (1 <= mes <= 12):
-                raise ValueError("Mes inválido, debe ser entre 1 y 12.")
-            anio = date.today().year
-            qs = Pago.objects.filter(fecha__year=anio, fecha__month=mes).select_related("local")
-            contador = 0
-            for pago in qs:
-                pago.valor = pago.local.cantidad_utm * valor_utm
-                pago.save()
-                contador += 1
-            ValorUTM.objects.update_or_create(
-                anio=anio,
-                mes=mes,
-                defaults={"valor": valor_utm},
-            )
-            messages.success(
-                request,
-                f"Se actualizaron {contador} arriendos del mes {mes}/{anio} con valor UTM ${valor_utm:,.2f}.",
-            )
-        except (ValueError, InvalidOperation) as e:
-            messages.error(request, f"No se pudo aplicar: {e}")
-        return redirect("aplicar_utm")
-
-    context = {
-        "utm_base": UTM_BASE,
-        "mes_actual": date.today().month,
-        "anio_actual": date.today().year,
-        "utm_por_mes": {
-            f"{v.anio}-{v.mes}": v.valor
-            for v in ValorUTM.objects.all()
-        },
-    }
-    return render(request, "core/aplicar_utm.html", context)
-
-
-@login_required
 def guardar_utm(request):
     if request.user.perfil.rol != "caja":
         messages.error(request, "No tienes permisos para modificar el valor UTM.")
@@ -1634,7 +1587,7 @@ def guardar_utm(request):
     if request.method == "POST":
         try:
             mes = int(request.POST.get("mes", "").strip())
-            valor = Decimal(request.POST.get("valor", "").strip())
+            valor = validaciones.monto(request.POST.get("valor"), "valor UTM")
             if valor <= 0:
                 raise ValueError("El valor UTM debe ser mayor que cero.")
             if not (1 <= mes <= 12):

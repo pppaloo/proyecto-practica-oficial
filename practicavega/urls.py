@@ -22,7 +22,6 @@ urlpatterns = [
     path('pagos/<str:tipo>/editar/<str:folio>/', views.editar_pago, name='editar_pago'),
     path('pagos/<str:tipo>/eliminar/<str:folio>/', views.eliminar_pago, name='eliminar_pago'),
     path('reportes/', views.reportes, name='reportes'),
-    path('aplicar-utm/', views.aplicar_utm, name='aplicar_utm'),
     path('guardar-utm/', views.guardar_utm, name='guardar_utm'),
     path('locales-desocupados/', views.locales_desocupados, name='locales_desocupados'),
     path('historial/', views.historial, name='historial'),

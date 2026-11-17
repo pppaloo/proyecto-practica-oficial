@@ -10,6 +10,8 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/4.1/ref/settings/
 """
 
+import os
+import secrets
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -19,14 +21,38 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/4.1/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-@)t#5b%9khrf8r(t9+%s%($w=a4u9%%j0al3(qhyr_b+d$)9u%'
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+def _leer_secret_key():
+    """Usa DJANGO_SECRET_KEY o genera una clave local (fuera de git)."""
+    clave = os.environ.get("DJANGO_SECRET_KEY", "").strip()
+    if clave:
+        return clave
+    ruta = BASE_DIR / ".secret_key"
+    if ruta.exists():
+        valor = ruta.read_text(encoding="utf-8").strip()
+        if valor:
+            return valor
+    valor = secrets.token_urlsafe(64)
+    ruta.write_text(valor, encoding="utf-8")
+    try:
+        ruta.chmod(0o600)
+    except OSError:
+        pass
+    return valor
 
-# '*' permite entrar desde cualquier PC de la red local (uso interno, DEBUG=True).
-ALLOWED_HOSTS = ['*']
+
+SECRET_KEY = _leer_secret_key()
+
+# En desarrollo DEBUG=True; para producción: DJANGO_DEBUG=0
+DEBUG = os.environ.get("DJANGO_DEBUG", "1") == "1"
+
+# '*' permite entrar desde cualquier PC de la red local (uso interno).
+# Para restringir: DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,192.168.1.50
+ALLOWED_HOSTS = [
+    h.strip()
+    for h in os.environ.get("DJANGO_ALLOWED_HOSTS", "*").split(",")
+    if h.strip()
+]
 
 
 # Application definition
@@ -81,11 +107,11 @@ WSGI_APPLICATION = 'practicavega.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'mysql.connector.django',
-        'NAME': 'centro_comercial',
-        'USER': 'root',
-        'PASSWORD': '12345',
-        'HOST': 'localhost',
-        'PORT': '3306',
+        'NAME': os.environ.get('DB_NAME', 'centro_comercial'),
+        'USER': os.environ.get('DB_USER', 'root'),
+        'PASSWORD': os.environ.get('DB_PASSWORD', '12345'),
+        'HOST': os.environ.get('DB_HOST', 'localhost'),
+        'PORT': os.environ.get('DB_PORT', '3306'),
     }
 }
 
@@ -104,6 +130,7 @@ AUTH_PASSWORD_VALIDATORS = [
     },
     {
         'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+        'OPTIONS': {'min_length': 10},
     },
     {
         'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
@@ -112,6 +139,28 @@ AUTH_PASSWORD_VALIDATORS = [
         'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
     },
 ]
+
+
+# --- Seguridad de sesión y cabeceras -------------------------------------
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = "Lax"
+CSRF_COOKIE_SAMESITE = "Lax"
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_REFERRER_POLICY = "same-origin"
+X_FRAME_OPTIONS = "DENY"
+SESSION_COOKIE_AGE = 60 * 60 * 8          # 8 horas
+SESSION_EXPIRE_AT_BROWSER_CLOSE = True
+
+# HTTPS solo si se activa explícitamente (la app interna usa HTTP en la LAN).
+HTTPS = os.environ.get("DJANGO_HTTPS", "0") == "1"
+SESSION_COOKIE_SECURE = HTTPS
+CSRF_COOKIE_SECURE = HTTPS
+SECURE_SSL_REDIRECT = HTTPS
+SECURE_HSTS_SECONDS = 31536000 if HTTPS else 0
+SECURE_HSTS_INCLUDE_SUBDOMAINS = HTTPS
+SECURE_HSTS_PRELOAD = HTTPS
+if HTTPS:
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 
 # Internationalization

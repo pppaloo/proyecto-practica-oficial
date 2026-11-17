@@ -10,11 +10,14 @@
             <input type="hidden" name="accion" value="crear">
             <div class="form-group">
                 <label>Usuario</label>
-                <input type="text" name="username" required>
+                <input type="text" name="username" required maxlength="150" minlength="3"
+                       pattern="[A-Za-z0-9._\-]{3,150}" autocomplete="username"
+                       title="3 a 150 caracteres: letras, números, punto, guion o guion bajo">
             </div>
             <div class="form-group">
                 <label>Contraseña</label>
-                <input type="password" name="password" required>
+                <input type="password" name="password" required maxlength="128" minlength="10"
+                       autocomplete="new-password" title="Mínimo 10 caracteres">
             </div>
             <div class="form-group">
                 <label>Rol</label>

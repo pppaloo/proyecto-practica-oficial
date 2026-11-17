@@ -14,7 +14,8 @@
         <div class="form-grid">
             <div class="form-group">
                 <label>N° Local *</label>
-                <input type="text" name="numero" required>
+                <input type="text" name="numero" required maxlength="10" pattern="[0-9]{1,10}"
+                       inputmode="numeric" title="Solo números (máximo 10 dígitos)">
             </div>
             <div class="form-group">
                 <label>Fecha *</label>
@@ -25,39 +26,42 @@
             <input type="hidden" id="id_mes" name="mes">
             <div class="form-group">
                 <label>Empresario</label>
-                <input type="text" name="empresario">
+                <input type="text" name="empresario" maxlength="150"
+                       title="Máximo 150 caracteres">
             </div>
             <div class="form-group">
                 <label>RUT</label>
-                <input type="text" name="rut" placeholder="12.345.678-9">
+                <input type="text" name="rut" placeholder="12.345.678-9" maxlength="15"
+                       inputmode="text" title="Formato 12.345.678-9">
             </div>
             <div class="form-group">
                 <label>Descripción</label>
-                <input type="text" name="descripcion">
-            </div>
-            <div class="form-group">
-                <label>Tipo Deuda</label>
-                <input type="text" name="tipo_deuda">
+                <input type="text" name="descripcion" maxlength="255"
+                       title="Máximo 255 caracteres">
             </div>
             <div class="form-group">
                 <label>Domicilio</label>
-                <input type="text" name="domicilio">
+                <input type="text" name="domicilio" maxlength="200"
+                       title="Máximo 200 caracteres">
             </div>
             <div class="form-group">
                 <label>Fono</label>
-                <input type="text" name="fono">
+                <input type="text" name="fono" maxlength="30" inputmode="tel"
+                       pattern="[0-9+\-() ]{0,30}" title="Solo números, +, -, paréntesis y espacios">
             </div>
             <div class="form-group">
                 <label>Correo</label>
-                <input type="text" name="correo">
+                <input type="email" name="correo" maxlength="150"
+                       title="Correo electrónico válido">
             </div>
             <div class="form-group">
                 <label>Periodo</label>
-                <input type="text" name="periodo">
+                <input type="text" name="periodo" maxlength="50"
+                       title="Máximo 50 caracteres">
             </div>
             <div class="form-group">
                 <label>Valor *</label>
-                <input type="number" name="valor" step="0.01" min="0" required>
+                <input type="number" name="valor" step="0.01" min="0" max="99999999.99" required>
             </div>
             <div class="form-group">
                 <label>Fecha Pago (opcional)</label>
@@ -65,7 +69,8 @@
             </div>
             <div class="form-group">
                 <label>Folio *</label>
-                <input type="text" name="folio" required>
+                <input type="text" name="folio" required maxlength="30"
+                       title="Máximo 30 caracteres (letras, números, guion, punto, guion bajo)">
             </div>
         </div>
         <div class="acciones mt20">
@@ -79,6 +84,7 @@
     const MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
     const FERIADOS = new Set({{ feriados|safe }});
     const RESTRINGIDO = {{ restringido|lower }};
+    const MENSUAL = {{ mensual|lower }};
 
     const fechaInput = document.getElementById("id_fecha");
     const mesInput = document.getElementById("id_mes");
@@ -104,6 +110,11 @@
         const fecha = fechaInput.value;
         if (!fecha) { avisoDias.style.display = "none"; return; }
         const [a, m] = fecha.split("-").map(Number);
+        if (MENSUAL) {
+            avisoDias.textContent = "Pago mensual: no se genera desglose por día.";
+            avisoDias.style.display = "block";
+            return;
+        }
         const total = diasDelMes(a, m);
         let habiles = 0;
         for (let d = 1; d <= total; d++) {

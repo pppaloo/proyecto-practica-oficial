@@ -20,19 +20,22 @@
             <input type="hidden" id="id_mes" name="mes" value="{{ pago.mes }}">
             <div class="form-group">
                 <label>Empresario</label>
-                <input type="text" name="empresario" value="{{ pago.empresario }}">
+                <input type="text" name="empresario" maxlength="150"
+                       title="Máximo 150 caracteres" value="{{ pago.empresario }}">
             </div>
             <div class="form-group">
                 <label>RUT</label>
-                <input type="text" name="rut" value="{{ pago.rut }}" placeholder="12.345.678-9">
+                <input type="text" name="rut" maxlength="15" placeholder="12.345.678-9"
+                       title="Formato 12.345.678-9" value="{{ pago.rut }}">
             </div>
             <div class="form-group">
                 <label>Descripción</label>
-                <input type="text" name="descripcion" value="{{ pago.descripcion }}">
+                <input type="text" name="descripcion" maxlength="255"
+                       title="Máximo 255 caracteres" value="{{ pago.descripcion }}">
             </div>
             <div class="form-group">
                 <label>Valor *</label>
-                <input type="number" name="valor" step="0.01" min="0" required value="{{ pago.valor }}">
+                <input type="number" name="valor" step="0.01" min="0" max="99999999.99" required value="{{ pago.valor }}">
             </div>
             <div class="form-group">
                 <label>Fecha Pago (opcional)</label>

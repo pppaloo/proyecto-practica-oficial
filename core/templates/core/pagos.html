@@ -11,20 +11,20 @@
 <div class="card">
     <div class="toolbar">
         <form method="get" class="filtros" id="filtros-form">
-            <input type="text" name="numero" value="{{ numero_filtro }}" placeholder="N° local" class="filtro-input" list="sug-numero" autocomplete="off">
-            <input type="text" name="folio" value="{{ folio_filtro }}" placeholder="Folio" class="filtro-input" list="sug-folio" autocomplete="off">
-            <input type="text" name="empresario" value="{{ empresario_filtro }}" placeholder="Empresario" class="filtro-input" list="sug-empresario" autocomplete="off">
+            <input type="text" name="numero" value="{{ numero_filtro }}" placeholder="N° local" class="filtro-input" list="sug-numero" autocomplete="off" maxlength="10" pattern="[0-9]{0,10}" title="Solo números (máximo 10)">
+            <input type="text" name="folio" value="{{ folio_filtro }}" placeholder="Folio" class="filtro-input" list="sug-folio" autocomplete="off" maxlength="30">
+            <input type="text" name="empresario" value="{{ empresario_filtro }}" placeholder="Empresario" class="filtro-input" list="sug-empresario" autocomplete="off" maxlength="150">
             <span class="filtro-rango">
                 <span class="filtro-etiqueta">Mes:</span> desde
-                <input type="text" name="mes_desde" value="{{ mes_desde }}" placeholder="Desde" class="filtro-input" list="sug-meses" autocomplete="off">
+                <input type="text" name="mes_desde" value="{{ mes_desde }}" placeholder="Desde" class="filtro-input" list="sug-meses" autocomplete="off" maxlength="20">
                 hasta
-                <input type="text" name="mes_hasta" value="{{ mes_hasta }}" placeholder="Hasta" class="filtro-input" list="sug-meses" autocomplete="off">
+                <input type="text" name="mes_hasta" value="{{ mes_hasta }}" placeholder="Hasta" class="filtro-input" list="sug-meses" autocomplete="off" maxlength="20">
             </span>
             <span class="filtro-rango">
                 <span class="filtro-etiqueta">Año:</span> desde
-                <input type="text" name="anio_desde" value="{{ anio_desde }}" placeholder="Desde" class="filtro-input" list="sug-anios" autocomplete="off">
+                <input type="text" name="anio_desde" value="{{ anio_desde }}" placeholder="Desde" class="filtro-input" list="sug-anios" autocomplete="off" maxlength="4" pattern="[0-9]{0,4}" title="Año de 4 dígitos">
                 hasta
-                <input type="text" name="anio_hasta" value="{{ anio_hasta }}" placeholder="Hasta" class="filtro-input" list="sug-anios" autocomplete="off">
+                <input type="text" name="anio_hasta" value="{{ anio_hasta }}" placeholder="Hasta" class="filtro-input" list="sug-anios" autocomplete="off" maxlength="4" pattern="[0-9]{0,4}" title="Año de 4 dígitos">
             </span>
             <button class="btn btn-primary" type="submit">Buscar</button>
             {% if numero_filtro or mes_desde or mes_hasta or anio_desde or anio_hasta or folio_filtro or empresario_filtro %}
@@ -81,7 +81,6 @@
                 <th>Descripción</th>
                 <th>Valor</th>
                 <th>Fecha Pago</th>
-                <th>Tipo Deuda</th>
                 <th>Domicilio</th>
                 <th>Fono</th>
                 <th>Correo</th>
@@ -99,7 +98,6 @@
                 <td data-campo="descripcion" data-raw="{{ pago.descripcion }}">{{ pago.descripcion }}</td>
                 <td data-campo="valor" data-raw="{{ pago.valor }}">${{ pago.valor|floatformat:0|intcomma }}</td>
                 <td data-campo="fecha_pago" data-raw="{{ pago.fecha_pago|date:"Y-m-d" }}">{{ pago.fecha_pago|date:"d/m/Y"|default:"—" }}</td>
-                <td data-campo="tipo_deuda" data-raw="{{ pago.tipo_deuda }}">{{ pago.tipo_deuda }}</td>
                 <td data-campo="domicilio" data-raw="{{ pago.domicilio }}">{{ pago.domicilio }}</td>
                 <td data-campo="fono" data-raw="{{ pago.fono }}">{{ pago.fono }}</td>
                 <td data-campo="correo" data-raw="{{ pago.correo }}">{{ pago.correo }}</td>
@@ -112,7 +110,7 @@
             </tr>
             {% if es_caja %}
             <tr class="desglose-fila">
-                <td colspan="13">
+                <td colspan="12">
                     <div class="desglose-contenedor">
                         <div class="toolbar toolbar-mb6">
                             <strong class="desglose-titulo">Desglose por día — {{ pago.mes }} {{ pago.fecha|date:"Y" }}</strong>
@@ -140,7 +138,7 @@
                                     <td><input type="text" name="folio_{{ forloop.counter0 }}" class="folio-dia-input" value="{{ fila.folio }}" placeholder="Folio"></td>
                                 </tr>
                                 {% empty %}
-                                <tr class="desglose-vacio"><td colspan="5" class="vacio">Aún no hay días para este mes.</td></tr>
+                                <tr class="desglose-vacio"><td colspan="5" class="vacio">{% if tipo_mensual %}Pago mensual: este sector no usa desglose diario.{% else %}Aún no hay días para este mes.{% endif %}</td></tr>
                                 {% endfor %}
                             </tbody>
                         </table>
@@ -156,7 +154,7 @@
         </tbody>
         {% empty %}
         <tbody>
-            <tr><td colspan="{% if es_caja %}13{% else %}12{% endif %}" class="vacio">No hay pagos registrados{% if numero_filtro %} para ese número{% endif %}.</td></tr>
+            <tr><td colspan="{% if es_caja %}12{% else %}11{% endif %}" class="vacio">No hay pagos registrados{% if numero_filtro %} para ese número{% endif %}.</td></tr>
         </tbody>
         {% endfor %}
     </table>
@@ -164,11 +162,11 @@
 
 <div style="margin: 16px 0; text-align: center;">
     {% if pagos.has_previous %}
-    <a class="btn btn-outline btn-mini" href="?pagina={{ pagos.previous_page_number }}">Anterior</a>
+    <a class="btn btn-outline btn-mini" href="?pagina={{ pagos.previous_page_number }}{% if filtros_qs %}&amp;{{ filtros_qs }}{% endif %}">Anterior</a>
     {% endif %}
     <span style="margin: 0 12px;">Pagina {{ pagos.number }} de {{ pagos.paginator.num_pages }} - {{ pagos.paginator.count }} registros</span>
     {% if pagos.has_next %}
-    <a class="btn btn-outline btn-mini" href="?pagina={{ pagos.next_page_number }}">Siguiente</a>
+    <a class="btn btn-outline btn-mini" href="?pagina={{ pagos.next_page_number }}{% if filtros_qs %}&amp;{{ filtros_qs }}{% endif %}">Siguiente</a>
     {% endif %}
 </div>
 
@@ -358,8 +356,8 @@
                 input.value = raw;
             }
             td._edit = true;
-            td._original = td.innerHTML;
-            td.innerHTML = "";
+            td._original = td.textContent;
+            td.textContent = "";
             td.appendChild(input);
         });
     }
@@ -368,7 +366,7 @@
         grupo.querySelectorAll("td[data-campo]").forEach(function (td) {
             if (!td._edit) return;
             if (restaurar && td._original !== undefined) {
-                td.innerHTML = td._original;
+                td.textContent = td._original;
             }
             delete td._edit;
             delete td._original;
@@ -392,11 +390,11 @@
             var raw = res[campo + "_raw"] !== undefined ? res[campo + "_raw"] : valor;
             td.setAttribute("data-raw", raw);
             if (campo === "valor") {
-                td.innerHTML = "$" + valor;
+                td.textContent = "$" + valor;
             } else if (campo === "fecha" || campo === "fecha_pago") {
-                td.innerHTML = valor || "—";
+                td.textContent = valor || "—";
             } else {
-                td.innerHTML = valor;
+                td.textContent = valor;
             }
             delete td._edit;
             delete td._original;
