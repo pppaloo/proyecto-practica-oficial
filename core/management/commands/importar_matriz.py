@@ -17,6 +17,9 @@ from core.models import LocalMatriz
 ARCHIVO_DEFAULT = r"C:\Users\palom\Downloads\DEUDA CENTRO COMERCIAL (2).xlsx"
 HOJA = "Matriz"
 
+# Sectores que ya no se usan y no deben volver a importarse.
+SECTORES_IGNORADOS = {"ex copihue"}
+
 
 def _texto(valor):
     if valor is None:
@@ -93,6 +96,8 @@ class Command(BaseCommand):
         filas = []
         for i, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
             if not row or row[0] is None or str(row[0]).strip() == "":
+                continue
+            if _texto(row[3]).lower() in SECTORES_IGNORADOS:
                 continue
             filas.append(
                 LocalMatriz(
